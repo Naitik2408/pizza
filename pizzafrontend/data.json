@@ -1,0 +1,53 @@
+{
+  "hotOffers": [
+    {
+      "image": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&q=80",
+      "badge": "50% OFF",
+      "title": "Buy 1 Get 1 Free",
+      "subtitle": "On all large pizzas"
+    },
+    {
+      "image": "https://images.unsplash.com/photo-1571066811602-716837d681de?w=400&q=80",
+      "badge": "FREE",
+      "title": "Free Delivery",
+      "subtitle": "On orders above $20"
+    }
+  ],
+  "featuredPizzas": [
+    {
+      "image": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&q=80",
+      "name": "Pepperoni Fresh",
+      "price": "$12.99"
+    },
+    {
+      "image": "https://images.unsplash.com/photo-1571066811602-716837d681de?w=400&q=80",
+      "name": "Margherita",
+      "price": "$10.99"
+    },
+    {
+      "image": "https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=400&q=80",
+      "name": "BBQ Chicken",
+      "price": "$14.99"
+    }
+  ],
+  "menuItems": [
+    {
+      "image": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&q=80",
+      "name": "Pepperoni Fresh",
+      "description": "Fresh pepperoni, mozzarella, tomato sauce",
+      "price": "$12.99"
+    },
+    {
+      "image": "https://images.unsplash.com/photo-1571066811602-716837d681de?w=400&q=80",
+      "name": "Margherita",
+      "description": "Fresh basil, mozzarella, tomato sauce",
+      "price": "$10.99"
+    },
+    {
+      "image": "https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=400&q=80",
+      "name": "BBQ Chicken",
+      "description": "Grilled chicken, BBQ sauce, red onions",
+      "price": "$14.99"
+    }
+  ]
+}
