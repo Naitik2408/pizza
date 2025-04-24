@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
+const MenuItem = require('../models/MenuItem');
 
 // Fetch all orders
 const getOrders = async (req, res) => {
@@ -27,8 +28,6 @@ const updateOrderStatus = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-// Replace the existing assignDeliveryAgent function with this improved version:
 
 // Assign delivery agent
 const assignDeliveryAgent = async (req, res) => {
@@ -92,19 +91,335 @@ const assignDeliveryAgent = async (req, res) => {
 // Fetch dashboard statistics
 const getDashboardStats = async (req, res) => {
   try {
+    // Basic stats
     const totalUsers = await User.countDocuments({ role: 'customer' });
     const totalOrders = await Order.countDocuments();
+
+    // Calculate total revenue from completed payments
     const totalRevenue = await Order.aggregate([
+      { $match: { paymentStatus: 'Completed' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
+    // Get order status breakdown
+    const deliveredOrdersCount = await Order.countDocuments({ status: 'Delivered' });
+    const inProgressOrders = await Order.countDocuments({
+      status: { $in: ['Pending', 'Preparing', 'Out for delivery'] }
+    });
+    const cancelledOrders = await Order.countDocuments({ status: 'Cancelled' });
+
+    // Date calculations for revenue periods
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const oneWeekAgo = new Date(today);
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+    const oneMonthAgo = new Date(today);
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+    const previousDay = new Date(today);
+    previousDay.setDate(previousDay.getDate() - 1);
+    previousDay.setHours(0, 0, 0, 0);
+
+    const previousWeekStart = new Date(oneWeekAgo);
+    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+
+    const previousMonthStart = new Date(oneMonthAgo);
+    previousMonthStart.setMonth(previousMonthStart.getMonth() - 1);
+
+    // Today's revenue
+    const todayRevenue = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: today },
+          paymentStatus: 'Completed'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    // Previous day revenue
+    const previousDayRevenue = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: previousDay, $lt: today },
+          paymentStatus: 'Completed'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    // This week's revenue
+    const weekRevenue = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: oneWeekAgo },
+          paymentStatus: 'Completed'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    // Previous week's revenue
+    const previousWeekRevenue = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: previousWeekStart, $lt: oneWeekAgo },
+          paymentStatus: 'Completed'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    // This month's revenue
+    const monthRevenue = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: oneMonthAgo },
+          paymentStatus: 'Completed'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    // Previous month's revenue
+    const previousMonthRevenue = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: previousMonthStart, $lt: oneMonthAgo },
+          paymentStatus: 'Completed'
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    // Calculate growth percentages
+    const todayRevenueValue = todayRevenue[0]?.total || 0;
+    const previousDayRevenueValue = previousDayRevenue[0]?.total || 0;
+    const todayGrowth = previousDayRevenueValue > 0
+      ? Math.round(((todayRevenueValue - previousDayRevenueValue) / previousDayRevenueValue) * 100)
+      : 0;
+
+    const weekRevenueValue = weekRevenue[0]?.total || 0;
+    const previousWeekRevenueValue = previousWeekRevenue[0]?.total || 0;
+    const weekGrowth = previousWeekRevenueValue > 0
+      ? Math.round(((weekRevenueValue - previousWeekRevenueValue) / previousWeekRevenueValue) * 100)
+      : 0;
+
+    const monthRevenueValue = monthRevenue[0]?.total || 0;
+    const previousMonthRevenueValue = previousMonthRevenue[0]?.total || 0;
+    const monthGrowth = previousMonthRevenueValue > 0
+      ? Math.round(((monthRevenueValue - previousMonthRevenueValue) / previousMonthRevenueValue) * 100)
+      : 0;
+
+    // Get chart data (orders per day for the last week)
+    const dailyOrdersData = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: oneWeekAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { "_id": 1 } }
+    ]);
+
+    // Format chart labels and data for the last 7 days
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const chartLabels = [];
+    const chartData = Array(7).fill(0); // Initialize with zeros
+
+    // Go back 7 days and create labels
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      chartLabels.push(daysOfWeek[date.getDay()]);
+
+      // Format date string to match the aggregation result format
+      const dateString = date.toISOString().split('T')[0];
+
+      // Find if we have data for this day
+      const dayData = dailyOrdersData.find(item => item._id === dateString);
+      if (dayData) {
+        chartData[6 - i] = dayData.count;
+      }
+    }
+
+    // Get popular items (most ordered in the last 30 days)
+    const popularItems = await Order.aggregate([
+      { $match: { createdAt: { $gte: oneMonthAgo } } },
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: "$items.name",
+          orders: { $sum: "$items.quantity" },
+          // Calculate last week vs previous week for growth
+          lastWeekOrders: {
+            $sum: {
+              $cond: [
+                { $gte: ["$createdAt", oneWeekAgo] },
+                "$items.quantity",
+                0
+              ]
+            }
+          },
+          prevWeekOrders: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $lt: ["$createdAt", oneWeekAgo] },
+                    { $gte: ["$createdAt", previousWeekStart] }
+                  ]
+                },
+                "$items.quantity",
+                0
+              ]
+            }
+          }
+        }
+      },
+      { $sort: { orders: -1 } },
+      { $limit: 5 },
+      {
+        $project: {
+          _id: 0,
+          name: "$_id",
+          orders: 1,
+          growth: {
+            $cond: [
+              { $eq: ["$prevWeekOrders", 0] },
+              "+0%",
+              {
+                $concat: [
+                  { $cond: [{ $gte: [{ $subtract: ["$lastWeekOrders", "$prevWeekOrders"] }, 0] }, "+", "-"] },
+                  {
+                    $toString: {
+                      $abs: {
+                        $round: {
+                          $multiply: [
+                            {
+                              $divide: [
+                                { $subtract: ["$lastWeekOrders", "$prevWeekOrders"] },
+                                { $cond: [{ $eq: ["$prevWeekOrders", 0] }, 1, "$prevWeekOrders"] }
+                              ]
+                            },
+                            100
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "%"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ]);
+
+    // Get quick stats
+    const activeDeliveryAgents = await User.countDocuments({
+      role: 'delivery'
+    });
+
+    const pendingDeliveries = await Order.countDocuments({
+      status: 'Out for delivery'
+    });
+
+    // Calculate average delivery time (in minutes) based on status updates
+    const deliveredOrdersWithTimeData = await Order.find({
+      status: 'Delivered',
+      createdAt: { $gte: oneMonthAgo },
+      statusUpdates: {
+        $elemMatch: { status: 'Delivered' }
+      }
+    });
+
+    let totalDeliveryTime = 0;
+    let countForAverage = 0;
+
+    deliveredOrdersWithTimeData.forEach(order => {
+      // Find the 'Out for delivery' status update
+      const outForDeliveryUpdate = order.statusUpdates.find(update => update.status === 'Out for delivery');
+      // Find the 'Delivered' status update
+      const deliveredUpdate = order.statusUpdates.find(update => update.status === 'Delivered');
+
+      if (outForDeliveryUpdate && deliveredUpdate) {
+        const outForDeliveryTime = new Date(outForDeliveryUpdate.time).getTime();
+        const deliveredTime = new Date(deliveredUpdate.time).getTime();
+
+        // Calculate time difference in minutes
+        const timeDiff = (deliveredTime - outForDeliveryTime) / (1000 * 60);
+
+        // Only count if delivery time is reasonable (less than 3 hours)
+        if (timeDiff > 0 && timeDiff < 180) {
+          totalDeliveryTime += timeDiff;
+          countForAverage++;
+        }
+      }
+    });
+
+    const avgDeliveryTime = countForAverage > 0 ? Math.round(totalDeliveryTime / countForAverage) : 0;
+
+    // For customer rating - we're calculating from item ratings
+    const menuItems = await MenuItem.find({}, 'rating ratingCount');
+    let totalRating = 0;
+    let totalRatingCount = 0;
+
+    menuItems.forEach(item => {
+      if (item.rating > 0 && item.ratingCount > 0) {
+        totalRating += (item.rating * item.ratingCount);
+        totalRatingCount += item.ratingCount;
+      }
+    });
+
+    const customerRating = totalRatingCount > 0 ? (totalRating / totalRatingCount) : 4.7; // Default if no ratings
+
+    // Assemble and return the complete dashboard data
     res.json({
       totalUsers,
       totalOrders,
       totalRevenue: totalRevenue[0]?.total || 0,
+      ordersByStatus: {
+        delivered: deliveredOrdersCount,
+        inProgress: inProgressOrders,
+        cancelled: cancelledOrders,
+      },
+      revenueData: {
+        today: todayRevenueValue,
+        week: weekRevenueValue,
+        month: monthRevenueValue,
+        todayGrowth,
+        weekGrowth,
+        monthGrowth
+      },
+      chartData: {
+        labels: chartLabels,
+        data: chartData
+      },
+      popularItems,
+      quickStats: {
+        activeDeliveryAgents,
+        pendingDeliveries,
+        avgDeliveryTime,
+        customerRating
+      }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching dashboard stats:', error);
+    res.status(500).json({
+      message: 'Error fetching dashboard statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
@@ -117,9 +432,6 @@ const getDeliveryAgents = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-
-// Add this improved version of getAssignedOrders:
 
 // Get all orders assigned to the logged in delivery agent
 const getAssignedOrders = async (req, res) => {
@@ -135,7 +447,7 @@ const getAssignedOrders = async (req, res) => {
     }).sort({ date: -1 });
 
     console.log(`Found ${orders.length} assigned orders for agent ID: ${userId}`);
-    
+
     // If debugging, log the first order's details
     if (orders.length > 0) {
       console.log('Sample order details:', {

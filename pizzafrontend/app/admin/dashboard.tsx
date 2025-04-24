@@ -1,5 +1,19 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, SafeAreaView, Platform, StatusBar } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  ScrollView, 
+  TouchableOpacity, 
+  Dimensions, 
+  SafeAreaView, 
+  Platform, 
+  StatusBar,
+  ActivityIndicator,
+  RefreshControl,
+  Image,
+  ImageBackground
+} from 'react-native';
 import { 
   Users, 
   Package, 
@@ -11,36 +25,232 @@ import {
   PieChart,
   BarChart3,
   MapPin,
-  Filter
+  Calendar,
+  ArrowUp,
+  ArrowDown,
+  AlertCircle
 } from 'lucide-react-native';
 import { LineChart } from 'react-native-chart-kit';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/redux/store';
+import { API_URL } from '@/config';
+import { LinearGradient } from 'expo-linear-gradient';
 
-const BOTTOM_NAV_HEIGHT = 60; // Adjust based on your actual bottom navigation height
+// TypeScript interfaces
+interface PopularItem {
+  name: string;
+  orders: number;
+  growth: string;
+}
+
+interface DashboardStats {
+  totalUsers: number;
+  totalOrders: number;
+  totalRevenue: number;
+  ordersByStatus: {
+    delivered: number;
+    inProgress: number;
+    cancelled: number;
+  };
+  revenueData: {
+    today: number;
+    week: number;
+    month: number;
+    todayGrowth: number;
+    weekGrowth: number;
+    monthGrowth: number;
+  };
+  chartData: {
+    labels: string[];
+    data: number[];
+  };
+  popularItems: PopularItem[];
+  quickStats: {
+    activeDeliveryAgents: number;
+    pendingDeliveries: number;
+    avgDeliveryTime: number;
+    customerRating: number;
+  };
+}
+
+const BOTTOM_NAV_HEIGHT = 60;
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
 
 const AdminDashboard = () => {
   const [revenueView, setRevenueView] = useState('today'); // today, week, month
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { token } = useSelector((state: RootState) => state.auth);
+  
+  // Dashboard data states with proper typing
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats>({
+    totalUsers: 0,
+    totalOrders: 0,
+    totalRevenue: 0,
+    ordersByStatus: {
+      delivered: 0,
+      inProgress: 0,
+      cancelled: 0,
+    },
+    revenueData: {
+      today: 0,
+      week: 0,
+      month: 0,
+      todayGrowth: 0,
+      weekGrowth: 0,
+      monthGrowth: 0
+    },
+    chartData: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      data: [0, 0, 0, 0, 0, 0, 0]
+    },
+    popularItems: [],
+    quickStats: {
+      activeDeliveryAgents: 0,
+      pendingDeliveries: 0,
+      avgDeliveryTime: 0,
+      customerRating: 0
+    }
+  });
   
   const screenWidth = Dimensions.get('window').width - 40;
   
+  // Fetch dashboard stats
+  const fetchDashboardStats = useCallback(async () => {
+    if (!token) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${API_URL}/api/admin/stats`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch dashboard stats');
+      }
+      
+      const data = await response.json();
+      
+      // Update dashboard data with response
+      setDashboardStats({
+        totalUsers: data.totalUsers || 0,
+        totalOrders: data.totalOrders || 0,
+        totalRevenue: data.totalRevenue || 0,
+        ordersByStatus: {
+          delivered: data.ordersByStatus?.delivered || 0,
+          inProgress: data.ordersByStatus?.inProgress || 0,
+          cancelled: data.ordersByStatus?.cancelled || 0,
+        },
+        revenueData: {
+          today: data.revenueData?.today || 0,
+          week: data.revenueData?.week || 0,
+          month: data.revenueData?.month || 0,
+          todayGrowth: data.revenueData?.todayGrowth || 0,
+          weekGrowth: data.revenueData?.weekGrowth || 0,
+          monthGrowth: data.revenueData?.monthGrowth || 0
+        },
+        chartData: {
+          labels: data.chartData?.labels || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+          data: data.chartData?.data || [0, 0, 0, 0, 0, 0, 0]
+        },
+        popularItems: data.popularItems || [],
+        quickStats: {
+          activeDeliveryAgents: data.quickStats?.activeDeliveryAgents || 0,
+          pendingDeliveries: data.quickStats?.pendingDeliveries || 0,
+          avgDeliveryTime: data.quickStats?.avgDeliveryTime || 0,
+          customerRating: data.quickStats?.customerRating || 0
+        }
+      });
+      
+    } catch (err) {
+      console.error('Error fetching dashboard stats:', err);
+      setError('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [token]);
+  
+  // Handle refresh
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchDashboardStats();
+  }, [fetchDashboardStats]);
+  
+  // Load data on component mount
+  useEffect(() => {
+    fetchDashboardStats();
+  }, [fetchDashboardStats]);
+  
+  // Format currency
+  const formatCurrency = (amount: number): string => {
+    return '₹' + amount.toLocaleString('en-IN');
+  };
+  
+  // Get current date
+  const getCurrentDate = (): string => {
+    const options: Intl.DateTimeFormatOptions = { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    };
+    return new Date().toLocaleDateString('en-US', options);
+  };
+  
+  // Chart configuration
   const chartData = {
-    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    labels: dashboardStats.chartData.labels,
     datasets: [
       {
-        data: [20, 45, 28, 80, 99, 43, 75],
-        color: (opacity = 1) => `rgba(255, 140, 0, ${opacity})`,
+        data: dashboardStats.chartData.data,
+        color: (opacity = 1) => `rgba(255, 107, 0, ${opacity})`,
         strokeWidth: 2
       }
     ],
   };
   
-  const popularItems = [
-    { name: 'Pepperoni Pizza', orders: 342, growth: '+12%' },
-    { name: 'Smokehouse Burger', orders: 271, growth: '+8%' },
-    { name: 'Meaty Pizza', orders: 245, growth: '+15%' },
-    { name: 'Beef Burger', orders: 198, growth: '+5%' },
-    { name: 'Hawaiian Pizza', orders: 156, growth: '+9%' },
-  ];
+  // Render loading state
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
+        <ActivityIndicator size="large" color="#FF6B00" />
+        <Text style={styles.loadingText}>Loading dashboard data...</Text>
+      </SafeAreaView>
+    );
+  }
+  
+  // Render error state
+  if (error && !refreshing) {
+    return (
+      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
+        <AlertCircle size={50} color="#FF6B00" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchDashboardStats}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+  
+  // Get arrow color based on growth percentage
+  const getGrowthColor = (growth: number): string => {
+    return growth >= 0 ? '#22c55e' : '#ef4444';
+  };
+  
+  // Get growth icon based on growth percentage
+  const getGrowthIcon = (growth: number) => {
+    return growth >= 0 ? 
+      <ArrowUp size={16} color="#22c55e" /> : 
+      <ArrowDown size={16} color="#ef4444" />;
+  };
   
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -48,188 +258,384 @@ const AdminDashboard = () => {
       <ScrollView 
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#FF6B00"]}
+            tintColor="#FF6B00"
+          />
+        }
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>Admin Dashboard</Text>
-          <TouchableOpacity style={styles.filterButton}>
-            <Filter size={20} color="#333" />
-            <Text style={styles.filterText}>Filter</Text>
-          </TouchableOpacity>
+        {/* Header Banner with Image - Increased Height */}
+        <ImageBackground
+          source={{ uri: 'https://img.freepik.com/free-photo/pleased-happy-young-woman-gazes-with-happiness-points-with-thumb-aside-free-space-eats-pizza-shows-direction-keeps-jaw-dropped-exclaims-happiness-isolated-yellow-wall_273609-29201.jpg?t=st=1745397508~exp=1745401108~hmac=b6b3555cdda51260f31d9d84b6ae9a3880708bf5f7319279788ccb631284e4b5&w=1380' }}
+          style={styles.headerBanner}
+          resizeMode="cover"
+        >
+          <LinearGradient
+            colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.3)']}
+            style={styles.headerGradient}
+          >
+            <View style={styles.headerContent}>
+              <Text style={styles.welcomeText}>Welcome back, Admin</Text>
+              <Text style={styles.dateText}>
+                <Calendar size={14} color="#fff" style={{marginRight: 5}} />
+                {getCurrentDate()}
+              </Text>
+            </View>
+          </LinearGradient>
+        </ImageBackground>
+        
+        {/* Dashboard Header - Removed Filter Option */}
+        <View style={styles.dashboardHeader}>
+          <Text style={styles.title}>Dashboard Overview</Text>
         </View>
         
-        {/* Quick Stats Row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Users size={24} color="#FF8C00" />
-            </View>
-            <View>
-              <Text style={styles.statValue}>2,854</Text>
-              <Text style={styles.statLabel}>Total Users</Text>
+        {/* Quick Stats Cards */}
+        <View style={styles.statsCardRow}>
+          <View style={[styles.statsCard, { backgroundColor: '#FFF0E6' }]}>
+            <View style={styles.statsCardContent}>
+              <View style={styles.statsCardIcon}>
+                <Users size={24} color="#FF6B00" />
+              </View>
+              <View>
+                <Text style={styles.statsCardValue}>{dashboardStats.totalUsers}</Text>
+                <Text style={styles.statsCardLabel}>Customers</Text>
+              </View>
             </View>
           </View>
           
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Package size={24} color="#FF8C00" />
-            </View>
-            <View>
-              <Text style={styles.statValue}>1,287</Text>
-              <Text style={styles.statLabel}>Total Orders</Text>
-            </View>
-          </View>
-          
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <DollarSign size={24} color="#FF8C00" />
-            </View>
-            <View>
-              <Text style={styles.statValue}>$42,589</Text>
-              <Text style={styles.statLabel}>Revenue</Text>
+          <View style={[styles.statsCard, { backgroundColor: '#E6F5FF' }]}>
+            <View style={styles.statsCardContent}>
+              <View style={[styles.statsCardIcon, { backgroundColor: 'rgba(0, 122, 255, 0.1)' }]}>
+                <Package size={24} color="#007AFF" />
+              </View>
+              <View>
+                <Text style={styles.statsCardValue}>{dashboardStats.totalOrders}</Text>
+                <Text style={styles.statsCardLabel}>Orders</Text>
+              </View>
             </View>
           </View>
         </View>
         
-        {/* Order Status Section */}
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Order Status</Text>
-          <View style={styles.orderStatusRow}>
-            <View style={styles.orderStatusCard}>
-              <View style={[styles.statusIcon, styles.deliveredIcon]}>
-                <CheckCircle size={20} color="#fff" />
+        <View style={styles.statsCardRow}>
+          <View style={[styles.statsCard, { backgroundColor: '#E6FFF0' }]}>
+            <View style={styles.statsCardContent}>
+              <View style={[styles.statsCardIcon, { backgroundColor: 'rgba(52, 199, 89, 0.1)' }]}>
+                <DollarSign size={24} color="#34C759" />
               </View>
-              <Text style={styles.orderStatusValue}>872</Text>
-              <Text style={styles.orderStatusLabel}>Delivered</Text>
+              <View>
+                <Text style={styles.statsCardValue}>{formatCurrency(dashboardStats.totalRevenue)}</Text>
+                <Text style={styles.statsCardLabel}>Revenue</Text>
+              </View>
             </View>
-            
-            <View style={styles.orderStatusCard}>
-              <View style={[styles.statusIcon, styles.inProgressIcon]}>
-                <Clock size={20} color="#fff" />
+          </View>
+          
+          <View style={[styles.statsCard, { backgroundColor: '#FFF0F0' }]}>
+            <View style={styles.statsCardContent}>
+              <View style={[styles.statsCardIcon, { backgroundColor: 'rgba(255, 59, 48, 0.1)' }]}>
+                <Clock size={24} color="#FF3B30" />
               </View>
-              <Text style={styles.orderStatusValue}>149</Text>
-              <Text style={styles.orderStatusLabel}>In Progress</Text>
-            </View>
-            
-            <View style={styles.orderStatusCard}>
-              <View style={[styles.statusIcon, styles.cancelledIcon]}>
-                <XCircle size={20} color="#fff" />
+              <View>
+                <Text style={styles.statsCardValue}>{dashboardStats.quickStats.pendingDeliveries}</Text>
+                <Text style={styles.statsCardLabel}>Pending</Text>
               </View>
-              <Text style={styles.orderStatusValue}>58</Text>
-              <Text style={styles.orderStatusLabel}>Cancelled</Text>
             </View>
           </View>
         </View>
         
         {/* Revenue Section */}
         <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Total Revenue</Text>
-          <View style={styles.revenueToggle}>
-            <TouchableOpacity 
-              style={[styles.toggleButton, revenueView === 'today' && styles.activeToggle]}
-              onPress={() => setRevenueView('today')}
-            >
-              <Text style={revenueView === 'today' ? styles.activeToggleText : styles.toggleText}>Today</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.toggleButton, revenueView === 'week' && styles.activeToggle]}
-              onPress={() => setRevenueView('week')}
-            >
-              <Text style={revenueView === 'week' ? styles.activeToggleText : styles.toggleText}>Week</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.toggleButton, revenueView === 'month' && styles.activeToggle]}
-              onPress={() => setRevenueView('month')}
-            >
-              <Text style={revenueView === 'month' ? styles.activeToggleText : styles.toggleText}>Month</Text>
-            </TouchableOpacity>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Revenue</Text>
+            <View style={styles.revenueToggle}>
+              <TouchableOpacity 
+                style={[styles.toggleButton, revenueView === 'today' && styles.activeToggle]}
+                onPress={() => setRevenueView('today')}
+              >
+                <Text style={revenueView === 'today' ? styles.activeToggleText : styles.toggleText}>Day</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.toggleButton, revenueView === 'week' && styles.activeToggle]}
+                onPress={() => setRevenueView('week')}
+              >
+                <Text style={revenueView === 'week' ? styles.activeToggleText : styles.toggleText}>Week</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.toggleButton, revenueView === 'month' && styles.activeToggle]}
+                onPress={() => setRevenueView('month')}
+              >
+                <Text style={revenueView === 'month' ? styles.activeToggleText : styles.toggleText}>Month</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           
-          <View style={styles.revenueDisplay}>
-            <Text style={styles.revenueValue}>
-              {revenueView === 'today' ? '$3,845' : revenueView === 'week' ? '$24,512' : '$89,754'}
-            </Text>
-            <Text style={styles.revenueGrowth}>
-              <TrendingUp size={16} color="#22c55e" /> 
-              {revenueView === 'today' ? '+12%' : revenueView === 'week' ? '+8%' : '+15%'} vs previous {revenueView}
-            </Text>
+          <View style={styles.revenueInfo}>
+            <View>
+              <Text style={styles.revenueValue}>
+                {revenueView === 'today' 
+                  ? formatCurrency(dashboardStats.revenueData.today)
+                  : revenueView === 'week'
+                  ? formatCurrency(dashboardStats.revenueData.week)
+                  : formatCurrency(dashboardStats.revenueData.month)
+                }
+              </Text>
+              <View style={styles.growthContainer}>
+                {getGrowthIcon(revenueView === 'today' 
+                  ? dashboardStats.revenueData.todayGrowth
+                  : revenueView === 'week' 
+                  ? dashboardStats.revenueData.weekGrowth 
+                  : dashboardStats.revenueData.monthGrowth
+                )}
+                <Text style={[
+                  styles.growthText, 
+                  { 
+                    color: getGrowthColor(revenueView === 'today' 
+                      ? dashboardStats.revenueData.todayGrowth
+                      : revenueView === 'week' 
+                      ? dashboardStats.revenueData.weekGrowth 
+                      : dashboardStats.revenueData.monthGrowth
+                    )
+                  }
+                ]}>
+                  {revenueView === 'today' 
+                    ? `${Math.abs(dashboardStats.revenueData.todayGrowth)}%` 
+                    : revenueView === 'week' 
+                    ? `${Math.abs(dashboardStats.revenueData.weekGrowth)}%` 
+                    : `${Math.abs(dashboardStats.revenueData.monthGrowth)}%`
+                  } vs previous {revenueView}
+                </Text>
+              </View>
+            </View>
+            
+            <Image 
+              source={{ uri: 'https://cdn-icons-png.flaticon.com/512/2382/2382533.png' }}
+              style={styles.revenueImage}
+            />
           </View>
-        </View>
-        
-        {/* Charts Section */}
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Orders Over Time</Text>
+
           <LineChart
             data={chartData}
-            width={screenWidth}
-            height={220}
+            width={screenWidth - 20} // Fixed width to prevent overflow
+            height={200}
             chartConfig={{
               backgroundColor: '#ffffff',
               backgroundGradientFrom: '#ffffff',
               backgroundGradientTo: '#ffffff',
               decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-              labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+              color: (opacity = 1) => `rgba(255, 107, 0, ${opacity})`,
+              labelColor: (opacity = 1) => `rgba(100, 100, 100, ${opacity})`,
               style: {
-                borderRadius: 16
+                borderRadius: 16,
               },
               propsForDots: {
-                r: '6',
+                r: '5',
                 strokeWidth: '2',
-                stroke: '#FF8C00'
+                stroke: '#FF6B00'
+              },
+              propsForBackgroundLines: {
+                strokeDasharray: '', // solid background lines
+                stroke: '#E5E5E5',
+                strokeWidth: 1
               }
             }}
             bezier
             style={styles.chart}
+            fromZero
           />
+        </View>
+        
+        {/* Order Status Section */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Order Status</Text>
+          
+          {(() => {
+            const total = 
+              dashboardStats.ordersByStatus.delivered + 
+              dashboardStats.ordersByStatus.inProgress + 
+              dashboardStats.ordersByStatus.cancelled;
+            
+            const deliveredPercentage = total > 0 ? 
+              (dashboardStats.ordersByStatus.delivered / total) * 100 : 0;
+            
+            const inProgressPercentage = total > 0 ? 
+              (dashboardStats.ordersByStatus.inProgress / total) * 100 : 0;
+            
+            const cancelledPercentage = total > 0 ? 
+              (dashboardStats.ordersByStatus.cancelled / total) * 100 : 0;
+            
+            return (
+              <View style={styles.orderStatsContainer}>
+                {/* Delivered Orders */}
+                <View style={styles.orderStatRow}>
+                  <View style={styles.orderStatHeader}>
+                    <View style={styles.orderStatIconContainer}>
+                      <CheckCircle size={18} color="#22c55e" />
+                    </View>
+                    <View>
+                      <Text style={styles.orderStatTitle}>Delivered</Text>
+                      <Text style={styles.orderStatSubtitle}>Completed orders</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.orderStatDetails}>
+                    <Text style={styles.orderStatCount}>{dashboardStats.ordersByStatus.delivered}</Text>
+                    <Text style={styles.orderStatPercentage}>{deliveredPercentage.toFixed(1)}%</Text>
+                  </View>
+                  
+                  <View style={styles.progressBarBackground}>
+                    <View 
+                      style={[
+                        styles.progressBarFill, 
+                        { 
+                          width: `${deliveredPercentage}%`,
+                          backgroundColor: '#22c55e'
+                        }
+                      ]} 
+                    />
+                  </View>
+                </View>
+                
+                {/* In Progress Orders */}
+                <View style={styles.orderStatRow}>
+                  <View style={styles.orderStatHeader}>
+                    <View style={styles.orderStatIconContainer}>
+                      <Clock size={18} color="#f59e0b" />
+                    </View>
+                    <View>
+                      <Text style={styles.orderStatTitle}>In Progress</Text>
+                      <Text style={styles.orderStatSubtitle}>Ongoing orders</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.orderStatDetails}>
+                    <Text style={styles.orderStatCount}>{dashboardStats.ordersByStatus.inProgress}</Text>
+                    <Text style={styles.orderStatPercentage}>{inProgressPercentage.toFixed(1)}%</Text>
+                  </View>
+                  
+                  <View style={styles.progressBarBackground}>
+                    <View 
+                      style={[
+                        styles.progressBarFill, 
+                        { 
+                          width: `${inProgressPercentage}%`,
+                          backgroundColor: '#f59e0b'
+                        }
+                      ]} 
+                    />
+                  </View>
+                </View>
+                
+                {/* Cancelled Orders */}
+                <View style={styles.orderStatRow}>
+                  <View style={styles.orderStatHeader}>
+                    <View style={styles.orderStatIconContainer}>
+                      <XCircle size={18} color="#ef4444" />
+                    </View>
+                    <View>
+                      <Text style={styles.orderStatTitle}>Cancelled</Text>
+                      <Text style={styles.orderStatSubtitle}>Cancelled orders</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.orderStatDetails}>
+                    <Text style={styles.orderStatCount}>{dashboardStats.ordersByStatus.cancelled}</Text>
+                    <Text style={styles.orderStatPercentage}>{cancelledPercentage.toFixed(1)}%</Text>
+                  </View>
+                  
+                  <View style={styles.progressBarBackground}>
+                    <View 
+                      style={[
+                        styles.progressBarFill, 
+                        { 
+                          width: `${cancelledPercentage}%`,
+                          backgroundColor: '#ef4444'
+                        }
+                      ]} 
+                    />
+                  </View>
+                </View>
+              </View>
+            );
+          })()}
         </View>
         
         {/* Most Ordered Items */}
         <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Most Ordered Items</Text>
-          {popularItems.map((item, index) => (
-            <View key={index} style={styles.popularItem}>
-              <View style={styles.popularItemLeft}>
-                <Text style={styles.itemRank}>{index + 1}</Text>
-                <Text style={styles.itemName}>{item.name}</Text>
-              </View>
-              <View style={styles.popularItemRight}>
-                <Text style={styles.itemOrders}>{item.orders} orders</Text>
-                <Text style={styles.itemGrowth}>{item.growth}</Text>
-              </View>
+          <Text style={styles.sectionTitle}>Popular Items</Text>
+          
+          {dashboardStats.popularItems.length > 0 ? (
+            <>
+              {dashboardStats.popularItems.map((item: PopularItem, index: number) => (
+                <View key={index} style={styles.popularItem}>
+                  <View style={styles.popularItemLeft}>
+                    <View style={styles.rankBadge}>
+                      <Text style={styles.rankText}>{index + 1}</Text>
+                    </View>
+                    <Text style={styles.itemName}>{item.name}</Text>
+                  </View>
+                  <View style={styles.popularItemRight}>
+                    <Text style={styles.itemOrders}>{item.orders} orders</Text>
+                    <Text style={[
+                      styles.itemGrowth, 
+                      { color: item.growth.startsWith('+') ? '#22c55e' : '#ef4444' }
+                    ]}>
+                      {item.growth}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          ) : (
+            <View style={styles.emptyStateContainer}>
+              <Image 
+                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/5445/5445197.png' }}
+                style={styles.emptyStateImage}
+              />
+              <Text style={styles.emptyStateText}>No popular items data available</Text>
             </View>
-          ))}
+          )}
         </View>
         
         {/* Quick Stats Section */}
         <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Quick Stats</Text>
-          <View style={styles.quickStatsRow}>
+          <Text style={styles.sectionTitle}>Operations Overview</Text>
+          
+          <View style={styles.quickStatsGrid}>
             <View style={styles.quickStatCard}>
-              <MapPin size={20} color="#FF8C00" />
-              <Text style={styles.quickStatValue}>24</Text>
+              <View style={styles.quickStatIconContainer}>
+                <MapPin size={20} color="#FF6B00" />
+              </View>
+              <Text style={styles.quickStatValue}>{dashboardStats.quickStats.activeDeliveryAgents}</Text>
               <Text style={styles.quickStatLabel}>Active Delivery Agents</Text>
             </View>
             
             <View style={styles.quickStatCard}>
-              <Clock size={20} color="#FF8C00" />
-              <Text style={styles.quickStatValue}>37</Text>
-              <Text style={styles.quickStatLabel}>Pending Deliveries</Text>
-            </View>
-          </View>
-          
-          <View style={styles.quickStatsRow}>
-            <View style={styles.quickStatCard}>
-              <BarChart3 size={20} color="#FF8C00" />
-              <Text style={styles.quickStatValue}>28min</Text>
-              <Text style={styles.quickStatLabel}>Avg. Delivery Time</Text>
+              <View style={styles.quickStatIconContainer}>
+                <Clock size={20} color="#FF6B00" />
+              </View>
+              <Text style={styles.quickStatValue}>{dashboardStats.quickStats.avgDeliveryTime}</Text>
+              <Text style={styles.quickStatLabel}>Avg. Delivery Time (min)</Text>
             </View>
             
             <View style={styles.quickStatCard}>
-              <PieChart size={20} color="#FF8C00" />
-              <Text style={styles.quickStatValue}>4.8</Text>
+              <View style={styles.quickStatIconContainer}>
+                <PieChart size={20} color="#FF6B00" />
+              </View>
+              <Text style={styles.quickStatValue}>{dashboardStats.quickStats.customerRating.toFixed(1)}</Text>
               <Text style={styles.quickStatLabel}>Customer Rating</Text>
+            </View>
+            
+            <View style={styles.quickStatCard}>
+              <View style={styles.quickStatIconContainer}>
+                <BarChart3 size={20} color="#FF6B00" />
+              </View>
+              <Text style={styles.quickStatValue}>{dashboardStats.totalOrders > 0 ? 
+                Math.round((dashboardStats.ordersByStatus.cancelled / dashboardStats.totalOrders) * 100) : 0}%</Text>
+              <Text style={styles.quickStatLabel}>Cancellation Rate</Text>
             </View>
           </View>
         </View>
@@ -241,160 +647,253 @@ const AdminDashboard = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F8F9FA',
     paddingTop: STATUSBAR_HEIGHT,
   },
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   contentContainer: {
-    padding: 20,
-    paddingBottom: BOTTOM_NAV_HEIGHT + 20, // Extra padding at bottom to account for navigation bar
+    paddingBottom: BOTTOM_NAV_HEIGHT + 20,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  centerContent: {
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
   },
-  title: {
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorText: {
+    marginTop: 10,
+    marginBottom: 20,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    paddingHorizontal: 30,
+  },
+  retryButton: {
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  headerBanner: {
+    height: 250,
+    width: '100%',
+    justifyContent: 'flex-end',
+  },
+  headerGradient: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    padding: 20,
+  },
+  headerContent: {
+    justifyContent: 'flex-end',
+  },
+  welcomeText: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#fff',
+    marginBottom: 8,
   },
-  filterButton: {
+  dateText: {
+    fontSize: 14,
+    color: '#fff',
+    opacity: 0.8,
+    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 8,
-    borderRadius: 8,
-    elevation: 2,
   },
-  filterText: {
-    marginLeft: 5,
+  dashboardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: 'bold',
     color: '#333',
   },
-  statsRow: {
+  statsCardRow: {
     flexDirection: 'row',
+    paddingHorizontal: 20,
     justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  statCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 15,
-    width: '31%',
-    alignItems: 'center',
-    elevation: 3,
-  },
-  statIconContainer: {
-    backgroundColor: '#FFF4E6',
-    padding: 10,
-    borderRadius: 8,
     marginBottom: 10,
   },
-  statValue: {
-    fontSize: 16,
+  statsCard: {
+    width: '48%',
+    borderRadius: 12,
+    padding: 15,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  statsCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statsCardIcon: {
+    backgroundColor: 'rgba(255, 107, 0, 0.1)',
+    padding: 10,
+    borderRadius: 10,
+    marginRight: 12,
+  },
+  statsCardValue: {
+    fontSize: 20,
     fontWeight: 'bold',
-    textAlign: 'center',
     color: '#333',
   },
-  statLabel: {
-    fontSize: 12,
-    color: '#888',
-    textAlign: 'center',
+  statsCardLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
   },
   sectionContainer: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 15,
-    marginBottom: 20,
+    margin: 20,
+    marginTop: 10,
+    marginBottom: 10,
     elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: '#333',
     marginBottom: 15,
-    color: '#333',
-  },
-  orderStatusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  orderStatusCard: {
-    alignItems: 'center',
-    width: '30%',
-  },
-  statusIcon: {
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 5,
-  },
-  deliveredIcon: {
-    backgroundColor: '#22c55e',
-  },
-  inProgressIcon: {
-    backgroundColor: '#f59e0b',
-  },
-  cancelledIcon: {
-    backgroundColor: '#ef4444',
-  },
-  orderStatusValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  orderStatusLabel: {
-    fontSize: 12,
-    color: '#888',
   },
   revenueToggle: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
-    marginBottom: 15,
     padding: 2,
   },
   toggleButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 15,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 6,
-    flex: 1,
-    alignItems: 'center',
   },
   activeToggle: {
-    backgroundColor: '#FF8C00',
+    backgroundColor: '#FF6B00',
   },
   toggleText: {
     color: '#666',
+    fontSize: 12,
   },
   activeToggleText: {
     color: '#fff',
+    fontSize: 12,
     fontWeight: 'bold',
   },
-  revenueDisplay: {
+  revenueInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 20,
   },
   revenueValue: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 5,
   },
-  revenueGrowth: {
-    fontSize: 14,
-    color: '#22c55e',
+  growthContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 5,
+  },
+  growthText: {
+    fontSize: 14,
+    marginLeft: 4,
+  },
+  revenueImage: {
+    width: 50,
+    height: 50,
+    resizeMode: 'contain',
   },
   chart: {
     marginVertical: 8,
     borderRadius: 16,
   },
+  // Order Stats UI
+  orderStatsContainer: {
+    marginTop: 5,
+  },
+  orderStatRow: {
+    marginBottom: 16,
+  },
+  orderStatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  orderStatIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    marginRight: 12,
+  },
+  orderStatTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+  },
+  orderStatSubtitle: {
+    fontSize: 12,
+    color: '#666',
+  },
+  orderStatDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  orderStatCount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  orderStatPercentage: {
+    fontSize: 14,
+    color: '#666',
+  },
+  progressBarBackground: {
+    height: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
   popularItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
@@ -402,16 +901,26 @@ const styles = StyleSheet.create({
   popularItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
-  itemRank: {
-    fontSize: 16,
+  rankBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FF6B00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  rankText: {
+    color: '#fff',
     fontWeight: 'bold',
-    width: 25,
-    color: '#FF8C00',
+    fontSize: 14,
   },
   itemName: {
     fontSize: 16,
     color: '#333',
+    flex: 1,
   },
   popularItemRight: {
     alignItems: 'flex-end',
@@ -423,31 +932,52 @@ const styles = StyleSheet.create({
   },
   itemGrowth: {
     fontSize: 12,
-    color: '#22c55e',
+    marginTop: 4,
   },
-  quickStatsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  emptyStateContainer: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyStateImage: {
+    width: 80,
+    height: 80,
     marginBottom: 10,
+    opacity: 0.6,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#888',
+    textAlign: 'center',
+  },
+  quickStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   quickStatCard: {
-    backgroundColor: '#FFF4E6',
+    width: '48%',
+    backgroundColor: '#F9FAFB',
     borderRadius: 12,
     padding: 15,
-    width: '48%',
+    marginBottom: 10,
     alignItems: 'center',
   },
+  quickStatIconContainer: {
+    backgroundColor: 'rgba(255, 107, 0, 0.1)',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
   quickStatValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 8,
     color: '#333',
   },
   quickStatLabel: {
     fontSize: 12,
-    color: '#888',
+    color: '#666',
     textAlign: 'center',
-    marginTop: 3,
+    marginTop: 5,
   },
 });
 
