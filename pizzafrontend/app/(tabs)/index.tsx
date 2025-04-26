@@ -1,4 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
 import {
   View,
   Text,
@@ -10,7 +12,8 @@ import {
   Dimensions,
   ImageBackground,
   StatusBar,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Star, ShoppingBag, ChevronRight, Sparkles } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
@@ -18,23 +21,144 @@ import data from '../../data.json'; // Import JSON data
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { LinearGradient } from 'expo-linear-gradient';
+import { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import { API_URL } from '@/config';
 
 const { width, height } = Dimensions.get('window');
 const ITEM_WIDTH = width * 0.85; // Make cards wider
 const SPACING = 10;
 
-export default function HomeScreen() {
+// Interface for offers fetched from backend
+interface Offer {
+  _id: string;
+  title: string;
+  code: string;
+  description: string;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+  minOrderValue: number;
+  maxDiscountAmount: number | null;
+  active: boolean;
+  validFrom: string;
+  validUntil: string;
+  usageLimit: number | null;
+  usageCount: number;
+  createdAt: string;
+}
+
+// Modified HomeOfferItem interface to adapt backend data
+interface HomeOfferItem {
+  id: string;
+  image: string;
+  badge: string;
+  title: string;
+  subtitle: string;
+  code?: string; // Added code
+}
+
+function HomeScreen() {
   const router = useRouter();
   const scrollX = useRef(new Animated.Value(0)).current;
   const [activeOfferIndex, setActiveOfferIndex] = useState(0);
+  const [offers, setOffers] = useState<HomeOfferItem[]>([]);
+  const [loadingOffers, setLoadingOffers] = useState(true);
+  const [offerError, setOfferError] = useState<string | null>(null);
 
   // Get user info from redux state
-  const { name, isGuest } = useSelector((state: RootState) => state.auth);
+  const { name, isGuest, token } = useSelector((state: RootState) => state.auth);
   const userName = name || 'Pizza Lover';
 
   // Simulate cart items
   const cartItems = useSelector((state: RootState) => state.cart.items);
   const cartItemCount = cartItems.length;
+
+  useEffect(() => {
+    const fetchOffers = async () => {
+      try {
+        setLoadingOffers(true);
+        setOfferError(null);
+
+        // Use the public endpoint instead of the admin-only endpoint
+        const response = await fetch(`${API_URL}/api/offers`);
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch offers');
+        }
+
+        const data: Offer[] = await response.json();
+
+        // Transform backend offers to home screen offer format
+        const transformedOffers: HomeOfferItem[] = data.map(offer => {
+          // Generate badge text based on discount type and value
+          let badgeText = '';
+          if (offer.discountType === 'percentage') {
+            badgeText = `${offer.discountValue}% OFF`;
+          } else {
+            badgeText = `₹${offer.discountValue} OFF`;
+          }
+
+          // Sample offer images - in a real app you'd store image URLs with offers
+          const sampleImages = [
+            'https://img.freepik.com/free-photo/photo-happy-joyful-man-wearing-burgundy-casual-t-shirt-looking-smiling-camera-holding-pizza-boxes_176532-9612.jpg?t=st=1745249055~exp=1745252655~hmac=52d7ce90a296baee9572fc3d5475ba8e75d7a03eb85ecb1db940e5630505b537&w=1380',
+            'https://img.freepik.com/free-photo/young-delivery-man-red-polo-shirt-cap-standing-with-box-fresh-pizza-pointing-it-with-finger-looking-camera-convinced-confident-isolated-pink-background_141793-19548.jpg?t=st=1745249128~exp=1745252728~hmac=c4c2b41db080ea544c7de06e1a590272b3a14e6473aeb6bf903d8ec895cd085f&w=1380',
+            'https://img.freepik.com/free-photo/young-delivery-man-red-uniform-cap-holding-paper-package-stack-pizza-boxes-pointing-something-with-skeptic-expression_141793-46341.jpg?t=st=1745249173~exp=1745252773~hmac=cecf90be9f1c55f57355827f0daa191696786cc6940291b0684220df73694671&w=1380'
+          ];
+
+          // Choose an image based on the offer ID (consistent but pseudo-random)
+          const imageIndex = offer._id.charCodeAt(0) % sampleImages.length;
+
+          // Generate subtitle based on offer details
+          let subtitle = offer.description;
+          if (offer.minOrderValue > 0) {
+            subtitle += ` Min order: ₹${offer.minOrderValue}`;
+          }
+
+          return {
+            id: offer._id,
+            image: sampleImages[imageIndex],
+            badge: badgeText,
+            title: offer.title,
+            subtitle: subtitle,
+            code: offer.code
+          };
+        });
+
+        setOffers(transformedOffers);
+      } catch (error) {
+        console.error('Error fetching offers:', error);
+        setOfferError('Could not load offers');
+
+        // Fallback to default offers if backend fetch fails
+        setOffers([
+          {
+            id: 'offer-1',
+            image: 'https://img.freepik.com/free-photo/photo-happy-joyful-man-wearing-burgundy-casual-t-shirt-looking-smiling-camera-holding-pizza-boxes_176532-9612.jpg?t=st=1745249055~exp=1745252655~hmac=52d7ce90a296baee9572fc3d5475ba8e75d7a03eb85ecb1db940e5630505b537&w=1380',
+            badge: '40% OFF',
+            title: 'Friday Special',
+            subtitle: 'Get 40% off on all orders above ₹599'
+          },
+          {
+            id: 'offer-2',
+            image: 'https://img.freepik.com/free-photo/young-delivery-man-red-polo-shirt-cap-standing-with-box-fresh-pizza-pointing-it-with-finger-looking-camera-convinced-confident-isolated-pink-background_141793-19548.jpg?t=st=1745249128~exp=1745252728~hmac=c4c2b41db080ea544c7de06e1a590272b3a14e6473aeb6bf903d8ec895cd085f&w=1380',
+            badge: 'NEW',
+            title: 'Cheese Explosion',
+            subtitle: 'Try our new 4-cheese pizza today'
+          },
+          {
+            id: 'offer-3',
+            image: 'https://img.freepik.com/free-photo/young-delivery-man-red-uniform-cap-holding-paper-package-stack-pizza-boxes-pointing-something-with-skeptic-expression_141793-46341.jpg?t=st=1745249173~exp=1745252773~hmac=cecf90be9f1c55f57355827f0daa191696786cc6940291b0684220df73694671&w=1380',
+            badge: 'COMBO',
+            title: 'Family Bundle',
+            subtitle: '2 Pizzas + Sides + Drinks at ₹799'
+          }
+        ]);
+      } finally {
+        setLoadingOffers(false);
+      }
+    };
+
+    fetchOffers();
+  }, []);
 
   const navigateToCart = () => {
     // Navigate to cart
@@ -43,15 +167,39 @@ export default function HomeScreen() {
 
   const navigateToItem = (itemId: string) => {
     // Navigate to item detail
-    router.push(`/menu/${itemId}`);
+    // router.push(`/menu/${itemId}`);
   };
 
-  // Handle scroll events to determine active offer
+  const handleUseOffer = (code: string) => {
+    if (!code) return;
+
+    // Store the offer code in AsyncStorage for later use in the cart
+    AsyncStorage.setItem('selectedOfferCode', code)
+      .then(() => {
+        console.log(`Offer code ${code} saved to be applied at checkout`);
+        Alert.alert(
+          "Offer Selected",
+          `You've selected the offer code: ${code}. It will be automatically applied at checkout.`,
+          [
+            { text: "Continue Shopping", style: "cancel" },
+            {
+              text: "Go to Cart",
+              onPress: () => router.push('/cart')
+            }
+          ]
+        );
+      })
+      .catch(err => {
+        console.error("Failed to save offer code:", err);
+      });
+  };
+  
+  // Define the scroll handler
   const handleOfferScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { x: scrollX } } }],
     {
       useNativeDriver: false,
-      listener: event => {
+      listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const scrollPosition = event.nativeEvent.contentOffset.x;
         const index = Math.round(scrollPosition / (ITEM_WIDTH + SPACING));
         setActiveOfferIndex(index);
@@ -59,87 +207,28 @@ export default function HomeScreen() {
     }
   );
 
-  // Manually create offer items for the hot offers section
-  const hotOffers = [
-    {
-      id: 'offer-1',
-      image: 'https://img.freepik.com/free-photo/photo-happy-joyful-man-wearing-burgundy-casual-t-shirt-looking-smiling-camera-holding-pizza-boxes_176532-9612.jpg?t=st=1745249055~exp=1745252655~hmac=52d7ce90a296baee9572fc3d5475ba8e75d7a03eb85ecb1db940e5630505b537&w=1380',
-      badge: '40% OFF',
-      title: 'Friday Special',
-      subtitle: 'Get 40% off on all orders above ₹599'
-    },
-    {
-      id: 'offer-2',
-      image: 'https://img.freepik.com/free-photo/young-delivery-man-red-polo-shirt-cap-standing-with-box-fresh-pizza-pointing-it-with-finger-looking-camera-convinced-confident-isolated-pink-background_141793-19548.jpg?t=st=1745249128~exp=1745252728~hmac=c4c2b41db080ea544c7de06e1a590272b3a14e6473aeb6bf903d8ec895cd085f&w=1380',
-      badge: 'NEW',
-      title: 'Cheese Explosion',
-      subtitle: 'Try our new 4-cheese pizza today'
-    },
-    {
-      id: 'offer-3',
-      image: 'https://img.freepik.com/free-photo/young-delivery-man-red-uniform-cap-holding-paper-package-stack-pizza-boxes-pointing-something-with-skeptic-expression_141793-46341.jpg?t=st=1745249173~exp=1745252773~hmac=cecf90be9f1c55f57355827f0daa191696786cc6940291b0684220df73694671&w=1380',
-      badge: 'COMBO',
-      title: 'Family Bundle',
-      subtitle: '2 Pizzas + Sides + Drinks at ₹799'
-    }
-  ];
-
-  // Sample pizza data
-  const featuredPizzas = [
-    {
-      id: 'pizza-1',
-      image: 'https://images.unsplash.com/photo-1593560708920-61dd98c46a4e?w=800&auto=format',
-      name: 'Pepperoni Classic',
-      price: '₹349'
-    },
-    {
-      id: 'pizza-2',
-      image: 'https://images.unsplash.com/photo-1595854341625-f33e596b9a3c?w=800&auto=format',
-      name: 'Margherita',
-      price: '₹299'
-    },
-    {
-      id: 'pizza-3',
-      image: 'https://images.unsplash.com/photo-1604382355076-af4b0eb60143?w=800&auto=format',
-      name: 'Veggie Supreme',
-      price: '₹399'
-    },
-    {
-      id: 'pizza-4',
-      image: 'https://images.unsplash.com/photo-1590947132387-155cc02f3212?w=800&auto=format',
-      name: 'BBQ Chicken',
-      price: '₹449'
-    }
-  ];
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-
-      {/* Main ScrollView Container - Controls the entire page scroll */}
       <ScrollView
         style={styles.scrollContainer}
-        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContentContainer}
+        showsVerticalScrollIndicator={false}
       >
-        {/* Hero Section with Background Image - Much Larger Height */}
+        {/* Hero Section */}
         <ImageBackground
-          source={{ uri: 'https://img.freepik.com/free-photo/pepperoni-pizza-slice_23-2151950837.jpg?t=st=1745247934~exp=1745251534~hmac=0d5bc52d36045f7f6fe00fbfb3d0c44dac2db0bfded805ee882828a3e8426fab&w=1380' }}
+          source={{ uri: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80' }}
           style={styles.heroBackground}
         >
           <LinearGradient
-            colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.7)']}
+            colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.3)']}
             style={styles.heroGradient}
           >
-            {/* App Bar */}
             <View style={styles.appBar}>
-              <View>
-                <Text style={styles.brandText}>PizzaBolt</Text>
-              </View>
-
+              <Text style={styles.brandText}>Pizza Bytes</Text>
               <View style={styles.appBarRight}>
                 <TouchableOpacity style={styles.cartButton} onPress={navigateToCart}>
-                  <ShoppingBag size={22} color="#fff" />
+                  <ShoppingBag size={20} color="#fff" />
                   {cartItemCount > 0 && (
                     <View style={styles.cartBadge}>
                       <Text style={styles.cartBadgeText}>{cartItemCount}</Text>
@@ -149,19 +238,13 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Greeting */}
             <View style={styles.greeting}>
-              <Text style={styles.welcomeText}>
-                {isGuest ? 'Hello, Guest!' : `Hello, ${userName.split(' ')[0]}!`} 👋
-              </Text>
-              <Text style={styles.tagline}>
-                What delicious meal are you craving today?
-              </Text>
+              <Text style={styles.welcomeText}>Hi {userName}!</Text>
+              <Text style={styles.tagline}>What would you like to taste today?</Text>
             </View>
           </LinearGradient>
         </ImageBackground>
 
-        {/* Main Content */}
         <View style={styles.mainContent}>
           {/* Hot Offers Carousel - Enhanced UI */}
           <View style={styles.section}>
@@ -170,88 +253,121 @@ export default function HomeScreen() {
                 <Sparkles size={20} color="#FF6B00" />
                 <Text style={styles.sectionTitle}>Hot Offers</Text>
               </View>
-              {/* Removed "See All" button */}
             </View>
 
-            {/* Enhanced ScrollView with paging effect */}
-            <Animated.ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.offersListEnhanced}
-              decelerationRate="fast"
-              snapToInterval={ITEM_WIDTH + SPACING}
-              snapToAlignment="center"
-              pagingEnabled
-              onScroll={handleOfferScroll}
-              scrollEventThrottle={16}
-            >
-              {hotOffers.map((item, index) => (
-                <TouchableOpacity
-                  key={item.id}
-                  activeOpacity={0.9}
-                  onPress={() => navigateToItem(item.id)}
-                >
-                  <View style={[styles.offerCardEnhanced, { width: ITEM_WIDTH, marginRight: SPACING }]}>
-                    <Image source={{ uri: item.image }} style={styles.offerImageEnhanced} />
-                    <LinearGradient
-                      colors={['transparent', 'rgba(0,0,0,0.8)']}
-                      style={styles.offerGradientEnhanced}
-                    >
-                      <View style={styles.offerContent}>
-                        <View style={styles.offerBadgeEnhanced}>
-                          <Text style={styles.offerBadgeTextEnhanced}>{item.badge}</Text>
-                        </View>
-                        <Text style={styles.offerTitleEnhanced}>{item.title}</Text>
-                        <Text style={styles.offerSubtitleEnhanced}>{item.subtitle}</Text>
+            {loadingOffers ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#FF6B00" />
+                <Text style={styles.loadingText}>Loading offers...</Text>
+              </View>
+            ) : offerError ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{offerError}</Text>
+              </View>
+            ) : offers.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No offers available at the moment</Text>
+              </View>
+            ) : (
+              <>
+                <Animated.FlatList
+                  data={offers}
+                  keyExtractor={(item) => item.id}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingLeft: 20 }}
+                  snapToInterval={ITEM_WIDTH + SPACING}
+                  snapToAlignment="start"
+                  decelerationRate="fast"
+                  onScroll={handleOfferScroll}
+                  renderItem={({ item }) => (
+                    <View style={{ width: ITEM_WIDTH, marginRight: SPACING }}>
+                      <View style={styles.offerCardEnhanced}>
+                        <Image source={{ uri: item.image }} style={styles.offerImageEnhanced} />
+                        <LinearGradient
+                          colors={['transparent', 'rgba(0,0,0,0.8)']}
+                          style={styles.offerGradientEnhanced}
+                        >
+                          <View style={styles.offerContent}>
+                            <View style={styles.offerBadgeEnhanced}>
+                              <Text style={styles.offerBadgeTextEnhanced}>{item.badge}</Text>
+                            </View>
 
-                        {/* Added call-to-action button */}
-                        <TouchableOpacity style={styles.offerActionButton}>
-                          <Text style={styles.offerActionButtonText}>View Offer</Text>
-                        </TouchableOpacity>
+                            <Text style={styles.offerTitleEnhanced}>{item.title}</Text>
+                            <Text style={styles.offerSubtitleEnhanced}>
+                              {item.subtitle}
+                            </Text>
+
+                            {item.code && (
+                              <View style={styles.offerCodeContainer}>
+                                <Text style={styles.offerCodeLabel}>Use code</Text>
+                                <Text style={styles.offerCode}>{item.code}</Text>
+                              </View>
+                            )}
+
+                            <TouchableOpacity 
+                              style={styles.offerActionButton}
+                              onPress={() => handleUseOffer(item.code || '')}
+                            >
+                              <Text style={styles.offerActionButtonText}>
+                                {item.code ? 'Apply Offer' : 'View Details'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </LinearGradient>
                       </View>
-                    </LinearGradient>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </Animated.ScrollView>
-
-            {/* Dot indicators */}
-            <View style={styles.paginationDots}>
-              {hotOffers.map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.paginationDot,
-                    index === activeOfferIndex && styles.paginationDotActive
-                  ]}
+                    </View>
+                  )}
                 />
-              ))}
-            </View>
+
+                {/* Pagination dots */}
+                <View style={styles.paginationDots}>
+                  {offers.map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.paginationDot,
+                        index === activeOfferIndex && styles.paginationDotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
           </View>
 
-          {/* Featured Pizzas - Improved UI */}
+          {/* Popular Pizzas */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleContainer}>
                 <Star size={20} color="#FF6B00" />
-                <Text style={styles.sectionTitle}>Featured Pizzas</Text>
+                <Text style={styles.sectionTitle}>Popular Pizzas</Text>
               </View>
+              <TouchableOpacity>
+                <Text style={styles.sectionAction}>View All</Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.pizzaGridContainer}>
-              {featuredPizzas.map((pizza, index) => (
+              {data.featuredPizzas.slice(0, 4).map((item: any) => (
                 <TouchableOpacity
-                  key={pizza.id}
+                  key={item.id || `pizza-${item.name}`}
                   style={styles.pizzaCardImproved}
-                  onPress={() => navigateToItem(pizza.id)}
-                  activeOpacity={0.9}
+                  onPress={() => navigateToItem(item.id || `pizza-${item.name}`)}
                 >
-                  <Image source={{ uri: pizza.image }} style={styles.pizzaImageImproved} />
+                  <Image source={{ uri: item.image }} style={styles.pizzaImageImproved} />
                   <View style={styles.pizzaCardContentImproved}>
-                    <Text style={styles.pizzaNameImproved}>{pizza.name}</Text>
+                    <Text style={styles.pizzaNameImproved}>
+                      {item.name}
+                    </Text>
                     <View style={styles.pizzaCardFooterImproved}>
-                      <Text style={styles.pizzaPriceImproved}>{pizza.price}</Text>
-                      <TouchableOpacity style={styles.addButtonImproved}>
+                      <Text style={styles.pizzaPriceImproved}>
+                        ₹{item.price}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.addButtonImproved}
+                        // In a real app, add this item to cart
+                      >
                         <Text style={styles.addButtonTextImproved}>+</Text>
                       </TouchableOpacity>
                     </View>
@@ -261,52 +377,40 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Popular Deals */}
+          {/* Deals of the Day */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleContainer}>
-                <ShoppingBag size={18} color="#FF6B00" />
-                <Text style={styles.sectionTitle}>Popular Deals</Text>
+                <Sparkles size={20} color="#FF6B00" />
+                <Text style={styles.sectionTitle}>Deals of the Day</Text>
               </View>
-              {/* Removed "See All" button */}
+              <TouchableOpacity>
+                <Text style={styles.sectionAction}>View All</Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.dealsGridContainer}>
-              <TouchableOpacity style={styles.dealCard} activeOpacity={0.9}>
-                <Image
-                  source={{ uri: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&q=80' }}
-                  style={styles.dealImage}
-                />
-                <View style={styles.dealContent}>
-                  <Text style={styles.dealTitle}>Family Combo</Text>
-                  <Text style={styles.dealDescription}>2 Large Pizzas + 2 Sides</Text>
-                  <View style={styles.dealFooter}>
-                    <Text style={styles.dealPrice}>₹699</Text>
-                    <TouchableOpacity style={styles.viewDealButton}>
-                      <Text style={styles.viewDealText}>View</Text>
-                      <ChevronRight size={16} color="#FF6B00" />
-                    </TouchableOpacity>
+              {data.menuItems.slice(0, 2).map((deal: any) => (
+                <View key={deal.id || `deal-${deal.name}`} style={styles.dealCard}>
+                  <Image source={{ uri: deal.image }} style={styles.dealImage} />
+                  <View style={styles.dealContent}>
+                    <Text style={styles.dealTitle}>{deal.name}</Text>
+                    <Text style={styles.dealDescription}>
+                      {deal.description}
+                    </Text>
+                    <View style={styles.dealFooter}>
+                      <Text style={styles.dealPrice}>₹{deal.price}</Text>
+                      <TouchableOpacity
+                        style={styles.viewDealButton}
+                        // Add navigation to deal details
+                      >
+                        <Text style={styles.viewDealText}>View Deal</Text>
+                        <ChevronRight size={16} color="#FF6B00" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.dealCard} activeOpacity={0.9}>
-                <Image
-                  source={{ uri: 'https://images.unsplash.com/photo-1571066811602-716837d681de?w=400&q=80' }}
-                  style={styles.dealImage}
-                />
-                <View style={styles.dealContent}>
-                  <Text style={styles.dealTitle}>Party Pack</Text>
-                  <Text style={styles.dealDescription}>3 Medium Pizzas + Drinks</Text>
-                  <View style={styles.dealFooter}>
-                    <Text style={styles.dealPrice}>₹999</Text>
-                    <TouchableOpacity style={styles.viewDealButton}>
-                      <Text style={styles.viewDealText}>View</Text>
-                      <ChevronRight size={16} color="#FF6B00" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableOpacity>
+              ))}
             </View>
           </View>
         </View>
@@ -327,9 +431,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 30,
   },
-  // Significantly increased hero height for more impact
   heroBackground: {
-    height: height * 0.45, // Increased to 45% of screen height
+    height: height * 0.45,
     width: '100%',
   },
   heroGradient: {
@@ -344,7 +447,7 @@ const styles = StyleSheet.create({
   },
   brandText: {
     color: '#fff',
-    fontSize: 22, // Increased size
+    fontSize: 22,
     fontWeight: 'bold',
   },
   appBarRight: {
@@ -376,7 +479,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   greeting: {
-    // Centered vertically in the larger hero section
     position: 'absolute',
     bottom: 80,
     left: 20,
@@ -384,7 +486,7 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     color: '#fff',
-    fontSize: 32, // Even larger font
+    fontSize: 32,
     fontWeight: 'bold',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
@@ -421,7 +523,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sectionTitle: {
-    fontSize: 20, // Increased size
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#1c1917',
     marginLeft: 8,
@@ -431,13 +533,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
-  // Original (kept for reference)
   offersList: {
     paddingLeft: 20,
     paddingRight: 10,
   },
   offerCard: {
-    height: 200, // Taller cards
+    height: 200,
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#fff',
@@ -472,7 +573,7 @@ const styles = StyleSheet.create({
   },
   offerTitle: {
     color: '#fff',
-    fontSize: 22, // Larger text
+    fontSize: 22,
     fontWeight: 'bold',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
@@ -486,15 +587,14 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
   },
-
-  // Enhanced Hot Offers styles
   offersListEnhanced: {
     paddingLeft: 20,
     paddingRight: 10,
-    paddingVertical: 10, // Added vertical padding
+    paddingVertical: 10,
   },
   offerCardEnhanced: {
-    height: 220, // Taller cards
+    minHeight: 250,
+    maxHeight: 350,
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#fff',
@@ -513,10 +613,11 @@ const styles = StyleSheet.create({
   offerGradientEnhanced: {
     flex: 1,
     justifyContent: 'flex-end',
-    padding: 0, // We'll use inner container padding instead
+    padding: 0,
   },
   offerContent: {
     padding: 20,
+    flexShrink: 1,
   },
   offerBadgeEnhanced: {
     backgroundColor: '#FF6B00',
@@ -529,11 +630,11 @@ const styles = StyleSheet.create({
   offerBadgeTextEnhanced: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 14, // Slightly larger
+    fontSize: 14,
   },
   offerTitleEnhanced: {
     color: '#fff',
-    fontSize: 24, // Larger text
+    fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 6,
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
@@ -542,12 +643,35 @@ const styles = StyleSheet.create({
   },
   offerSubtitleEnhanced: {
     color: '#fff',
-    fontSize: 16, // Larger text
+    fontSize: 16,
     marginBottom: 16,
     opacity: 0.95,
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
+    flexWrap: 'wrap',
+  },
+  offerCodeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  offerCodeLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    marginRight: 6,
+  },
+  offerCode: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    letterSpacing: 1,
   },
   offerActionButton: {
     backgroundColor: '#FF6B00',
@@ -580,14 +704,38 @@ const styles = StyleSheet.create({
     height: 8,
     backgroundColor: '#FF6B00',
   },
-
-  // Original styles
-  // pizzaGridContainer: {
-  //   flexDirection: 'row',
-  //   flexWrap: 'wrap',
-  //   paddingHorizontal: 15,
-  //   justifyContent: 'space-between',
-  // },
+  loadingContainer: {
+    height: 250,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#EF4444',
+    textAlign: 'center',
+  },
+  emptyContainer: {
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
   pizzaCard: {
     width: width / 2 - 25,
     backgroundColor: '#fff',
@@ -596,19 +744,19 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1, // Increased shadow
-    shadowRadius: 6, // Increased shadow spread
-    elevation: 4, // Increased elevation
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
   },
   pizzaImage: {
     width: '100%',
-    height: 150, // Taller images
+    height: 150,
   },
   pizzaCardContent: {
-    padding: 15, // More padding
+    padding: 15,
   },
   pizzaName: {
-    fontSize: 16, // Slightly larger
+    fontSize: 16,
     fontWeight: '600',
     color: '#1c1917',
     marginBottom: 8,
@@ -620,14 +768,14 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   pizzaPrice: {
-    fontSize: 17, // Larger price
+    fontSize: 17,
     fontWeight: 'bold',
     color: '#FF6B00',
   },
   addButton: {
     backgroundColor: '#1c1917',
-    height: 30, // Larger button
-    width: 30, // Larger button
+    height: 30,
+    width: 30,
     borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
@@ -647,19 +795,19 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12, // Increased shadow
-    shadowRadius: 8, // Increased shadow spread
-    elevation: 5, // Increased elevation
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 5,
   },
   dealImage: {
     width: '100%',
-    height: 160, // Taller images
+    height: 160,
   },
   dealContent: {
-    padding: 18, // More padding
+    padding: 18,
   },
   dealTitle: {
-    fontSize: 18, // Larger text
+    fontSize: 18,
     fontWeight: '600',
     color: '#1c1917',
   },
@@ -676,7 +824,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   dealPrice: {
-    fontSize: 20, // Larger price
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#FF6B00',
   },
@@ -689,71 +837,72 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginRight: 4,
   },
-  // Improved Featured Pizzas styles
-pizzaGridContainer: {
-  flexDirection: 'row',
-  flexWrap: 'wrap',
-  paddingHorizontal: 20,
-  justifyContent: 'space-between',
-},
-pizzaCardImproved: {
-  width: width / 2 - 30, // Slightly wider but with more spacing
-  backgroundColor: '#fff',
-  borderRadius: 16,
-  overflow: 'hidden',
-  marginBottom: 20,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 3 },
-  shadowOpacity: 0.12,
-  shadowRadius: 8,
-  elevation: 5,
-  borderWidth: 1,
-  borderColor: 'rgba(0,0,0,0.03)',
-},
-pizzaImageImproved: {
-  width: '100%',
-  height: 130, // Shorter, more balanced height
-  resizeMode: 'cover',
-},
-pizzaCardContentImproved: {
-  padding: 16,
-},
-pizzaNameImproved: {
-  fontSize: 16,
-  fontWeight: '700', // Bolder font
-  color: '#1c1917',
-  marginBottom: 8,
-  letterSpacing: 0.2, // Slight letter spacing
-},
-pizzaCardFooterImproved: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  marginTop: 6,
-},
-pizzaPriceImproved: {
-  fontSize: 18, // Larger price
-  fontWeight: '800', // Extra bold
-  color: '#FF6B00',
-  letterSpacing: 0.3,
-},
-addButtonImproved: {
-  backgroundColor: '#1c1917',
-  height: 32,
-  width: 32,
-  borderRadius: 16,
-  justifyContent: 'center',
-  alignItems: 'center',
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.2,
-  shadowRadius: 3,
-  elevation: 2,
-},
-addButtonTextImproved: {
-  color: '#fff',
-  fontSize: 20,
-  fontWeight: '600',
-  lineHeight: 24,
-},
+  pizzaGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 20,
+    justifyContent: 'space-between',
+  },
+  pizzaCardImproved: {
+    width: width / 2 - 30,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+  },
+  pizzaImageImproved: {
+    width: '100%',
+    height: 130,
+    resizeMode: 'cover',
+  },
+  pizzaCardContentImproved: {
+    padding: 16,
+  },
+  pizzaNameImproved: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1c1917',
+    marginBottom: 8,
+    letterSpacing: 0.2,
+  },
+  pizzaCardFooterImproved: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  pizzaPriceImproved: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FF6B00',
+    letterSpacing: 0.3,
+  },
+  addButtonImproved: {
+    backgroundColor: '#1c1917',
+    height: 32,
+    width: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  addButtonTextImproved: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '600',
+    lineHeight: 24,
+  }
 });
+
+export default HomeScreen;

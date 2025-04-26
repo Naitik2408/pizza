@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router';
+import { Tabs, Stack } from 'expo-router';
 import { BarChart, ShoppingBag, History, User } from 'lucide-react-native';
 
 export default function AdminTabLayout() {

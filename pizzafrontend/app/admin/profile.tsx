@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Switch } from 'react-native';
-import { Settings, Bell, LogOut, Lock, Moon, UserCircle, Phone, ChevronRight } from 'lucide-react-native';
+import { Settings, Bell, LogOut, Lock, Moon, UserCircle, Phone, ChevronRight, Users, Tag } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/store';
@@ -16,7 +16,6 @@ export default function AdminProfile() {
 
   const handleLogout = async () => {
     try {
-
       const response = await fetch(`${API_URL}/api/users/logout`, {
         method: 'POST',
         headers: {
@@ -62,7 +61,7 @@ export default function AdminProfile() {
           />
           <Text style={[styles.name, darkMode && styles.darkText]}>{name || 'Admin Name'}</Text>
           <Text style={[styles.email, darkMode && styles.darkTextSecondary]}>{email || 'admin@example.com'}</Text>
-          
+
           {/* Role Badge */}
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>{role || 'Super Admin'}</Text>
@@ -74,7 +73,7 @@ export default function AdminProfile() {
         <View style={styles.section}>
           {/* Account Information */}
           <Text style={[styles.sectionTitle, darkMode && styles.darkText]}>Account Information</Text>
-          
+
           <TouchableOpacity style={[styles.menuItem, darkMode && styles.darkMenuItem]}>
             <View style={[styles.iconContainer, { backgroundColor: '#4F46E520' }]}>
               <Phone size={20} color="#4F46E5" />
@@ -97,10 +96,47 @@ export default function AdminProfile() {
             <ChevronRight size={20} color={darkMode ? "#9CA3AF" : "#9CA3AF"} />
           </TouchableOpacity>
 
+          {/* Admin Controls Section */}
+          <Text style={[styles.sectionTitle, darkMode && styles.darkText]}>Admin Controls</Text>
+
+          <TouchableOpacity
+            style={[styles.menuItem, darkMode && styles.darkMenuItem]}
+            onPress={() => {
+              console.log('Navigating to User Management');
+              router.push('/userPage');
+            }}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: '#6366F120' }]}>
+              <Users size={20} color="#6366F1" />
+            </View>
+            <View style={styles.menuItemContent}>
+              <Text style={[styles.menuItemText, darkMode && styles.darkText]}>Manage Users</Text>
+              <Text style={[styles.menuItemDescription, darkMode && styles.darkTextSecondary]}>View and update user roles</Text>
+            </View>
+            <ChevronRight size={20} color={darkMode ? "#9CA3AF" : "#9CA3AF"} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.menuItem, darkMode && styles.darkMenuItem]}
+            onPress={() => {
+              console.log('Navigating to Offers Management');
+              router.push('/offerPage');
+            }}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: '#F59E0B20' }]}>
+              <Tag size={20} color="#F59E0B" />
+            </View>
+            <View style={styles.menuItemContent}>
+              <Text style={[styles.menuItemText, darkMode && styles.darkText]}>Manage Offers</Text>
+              <Text style={[styles.menuItemDescription, darkMode && styles.darkTextSecondary]}>Create and update discount offers</Text>
+            </View>
+            <ChevronRight size={20} color={darkMode ? "#9CA3AF" : "#9CA3AF"} />
+          </TouchableOpacity>
+
           {/* Settings */}
           <Text style={[styles.sectionTitle, darkMode && styles.darkText]}>Settings</Text>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={[styles.menuItem, darkMode && styles.darkMenuItem]}
             onPress={handleChangePassword}
           >
@@ -154,8 +190,8 @@ export default function AdminProfile() {
           </View>
         </View>
 
-        <TouchableOpacity 
-          style={[styles.logoutButton, darkMode && styles.darkLogoutButton]} 
+        <TouchableOpacity
+          style={[styles.logoutButton, darkMode && styles.darkLogoutButton]}
           onPress={handleLogout}
         >
           <LogOut size={20} color="#FF4B4B" />

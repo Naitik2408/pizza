@@ -465,4 +465,187 @@ const getAssignedOrders = async (req, res) => {
   }
 };
 
-module.exports = { getOrders, updateOrderStatus, assignDeliveryAgent, getDashboardStats, getDeliveryAgents, getAssignedOrders };
+
+// Add these functions to your existing adminController.js file
+
+// Get all users
+const getAllUsers = async (req, res) => {
+  try {
+    // Exclude password field for security
+    const users = await User.find().select('-password');
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Failed to fetch users' });
+  }
+};
+
+// Update user role
+const updateUserRole = async (req, res) => {
+  const { id } = req.params;
+  const { role } = req.body;
+
+  try {
+    // Validate role
+    if (!['customer', 'delivery', 'admin'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role specified' });
+    }
+
+    // Check if user exists
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Prevent removing the last admin
+    if (user.role === 'admin' && role !== 'admin') {
+      const adminCount = await User.countDocuments({ role: 'admin' });
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          message: 'Cannot change role: This is the last admin user'
+        });
+      }
+    }
+
+    // Update user role
+    user.role = role;
+    await user.save();
+
+    // Return updated user without password
+    const updatedUser = await User.findById(id).select('-password');
+    res.json(updatedUser);
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).json({ message: 'Failed to update user role' });
+  }
+};
+
+
+
+// Add these to adminController.js
+// filepath: /home/naitik2408/Contribution/pizza/pizzabackend/controllers/adminController.js
+
+const Offer = require('../models/Offer');
+
+// Get all offers
+const getOffers = async (req, res) => {
+  try {
+    const offers = await Offer.find().sort({ createdAt: -1 });
+    res.json(offers);
+  } catch (error) {
+    console.error('Error fetching offers:', error);
+    res.status(500).json({ message: 'Failed to fetch offers' });
+  }
+};
+
+// Get single offer by ID
+const getOfferById = async (req, res) => {
+  try {
+    const offer = await Offer.findById(req.params.id);
+
+    if (!offer) {
+      return res.status(404).json({ message: 'Offer not found' });
+    }
+
+    res.json(offer);
+  } catch (error) {
+    console.error('Error fetching offer:', error);
+    res.status(500).json({ message: 'Failed to fetch offer' });
+  }
+};
+
+// Create new offer
+const createOffer = async (req, res) => {
+  try {
+    // Check if code already exists
+    const existingOffer = await Offer.findOne({ code: req.body.code.toUpperCase() });
+    if (existingOffer) {
+      return res.status(400).json({ message: 'An offer with this code already exists' });
+    }
+
+    // Create the offer
+    const offer = new Offer({
+      ...req.body,
+      code: req.body.code.toUpperCase(),
+    });
+
+    const createdOffer = await offer.save();
+    res.status(201).json(createdOffer);
+  } catch (error) {
+    console.error('Error creating offer:', error);
+    res.status(500).json({
+      message: 'Failed to create offer',
+      error: error.message
+    });
+  }
+};
+
+// Update offer
+const updateOffer = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // If updating code, check if new code already exists elsewhere
+    if (req.body.code) {
+      const codeExists = await Offer.findOne({
+        code: req.body.code.toUpperCase(),
+        _id: { $ne: id }
+      });
+
+      if (codeExists) {
+        return res.status(400).json({ message: 'An offer with this code already exists' });
+      }
+
+      // Ensure code is uppercase
+      req.body.code = req.body.code.toUpperCase();
+    }
+
+    const updatedOffer = await Offer.findByIdAndUpdate(
+      id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedOffer) {
+      return res.status(404).json({ message: 'Offer not found' });
+    }
+
+    res.json(updatedOffer);
+  } catch (error) {
+    console.error('Error updating offer:', error);
+    res.status(500).json({ message: 'Failed to update offer' });
+  }
+};
+
+// Delete offer - updated method
+const deleteOffer = async (req, res) => {
+  try {
+    const deletedOffer = await Offer.findByIdAndDelete(req.params.id);
+
+    if (!deletedOffer) {
+      return res.status(404).json({ message: 'Offer not found' });
+    }
+
+    res.json({ message: 'Offer removed', success: true });
+  } catch (error) {
+    console.error('Error deleting offer:', error);
+    res.status(500).json({ message: 'Failed to delete offer' });
+  }
+};
+
+// Update the module exports to include the new functions
+module.exports = {
+  getOrders,
+  updateOrderStatus,
+  assignDeliveryAgent,
+  getDashboardStats,
+  getDeliveryAgents,
+  getAssignedOrders,
+  getAllUsers,
+  updateUserRole,
+  getOffers,
+  getOfferById,
+  createOffer,
+  updateOffer,
+  deleteOffer
+};

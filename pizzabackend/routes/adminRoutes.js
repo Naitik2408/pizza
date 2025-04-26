@@ -5,7 +5,14 @@ const {
   updateOrderStatus,
   assignDeliveryAgent,
   getDashboardStats,
-  getDeliveryAgents
+  getDeliveryAgents,
+  getAllUsers,          // Add these new controller functions
+  updateUserRole,
+  getOffers,
+  createOffer,
+  getOfferById,
+  updateOffer,
+  deleteOffer,
 } = require('../controllers/adminController');
 
 const router = express.Router();
@@ -25,6 +32,19 @@ router.get('/delivery-agents', protect, admin, getDeliveryAgents);
 // Fetch dashboard statistics
 router.get('/stats', protect, admin, getDashboardStats);
 
+// User management routes
+router.get('/users', protect, admin, getAllUsers);
+router.put('/users/:id/role', protect, admin, updateUserRole);
 
+
+// Add these to adminRoutes.js
+// filepath: /home/naitik2408/Contribution/pizza/pizzabackend/routes/adminRoutes.js
+
+// Offers management routes
+router.get('/offers', protect, admin, getOffers);
+router.post('/offers', protect, admin, createOffer);
+router.get('/offers/:id', protect, admin, getOfferById);
+router.put('/offers/:id', protect, admin, updateOffer);
+router.delete('/offers/:id', protect, admin, deleteOffer);
 
 module.exports = router;

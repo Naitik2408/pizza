@@ -1,16 +1,16 @@
 import React from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  Image, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
   ScrollView,
   Platform
 } from 'react-native';
-import { 
-  AntDesign, 
-  MaterialIcons, 
+import {
+  AntDesign,
+  MaterialIcons,
   FontAwesome5,
   Ionicons
 } from '@expo/vector-icons';
@@ -31,17 +31,20 @@ interface OrderConfirmationProps {
   };
 }
 
-const OrderConfirmation = ({ 
-  onFinish, 
-  paymentMethod, 
-  paymentDetails, 
-  deliveryAddress 
+const OrderConfirmation = ({
+  onFinish,
+  paymentMethod,
+  paymentDetails,
+  deliveryAddress
 }: OrderConfirmationProps) => {
   const dispatch = useDispatch();
-  
-  // Fix: Correctly access cart state using the proper selectors
+
+  // Get cart items and discount from Redux
   const cartItems = useSelector((state: RootState) => state.cart.items);
-  const total = useSelector((state: RootState) => 
+  const discount = useSelector((state: RootState) => state.cart.discount);
+  
+  // Calculate total with tax, delivery fee and discount
+  const total = useSelector((state: RootState) =>
     state.cart.items.reduce((sum, item) => {
       let itemTotal = item.price * item.quantity;
       // Add customization prices if any
@@ -51,7 +54,7 @@ const OrderConfirmation = ({
         });
       }
       return sum + itemTotal;
-    }, 0) + 
+    }, 0) +
     // Add delivery fee and tax
     (state.cart.items.length > 0 ? state.cart.deliveryFee : 0) +
     (state.cart.items.reduce((sum, item) => {
@@ -64,33 +67,31 @@ const OrderConfirmation = ({
       return sum + itemTotal;
     }, 0) * state.cart.taxRate)
   );
-  
+
   // Generate a random order ID
   const orderId = `OD${Math.floor(100000 + Math.random() * 900000)}`;
-  
+
   // Calculate estimated delivery time (30-45 mins from now)
   const now = new Date();
   const deliveryStart = new Date(now.getTime() + 30 * 60000);
   const deliveryEnd = new Date(now.getTime() + 45 * 60000);
-  
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-  
+
   const handleTrackOrder = () => {
     // Navigate to order tracking screen (to be implemented)
     alert('Track Order functionality will be implemented soon');
   };
-  
+
   const handleContinueShopping = () => {
     // Clear the cart and finish the checkout process
     dispatch(clearCart());
     onFinish();
   };
-  
-  // Rest of the component remains unchanged
+
   return (
-    // Existing JSX code...
     <View style={styles.container}>
       <ScrollView style={styles.content}>
         {/* Success Animation */}
@@ -100,7 +101,7 @@ const OrderConfirmation = ({
             <AntDesign name="checkcircle" size={60} color="#4CAF50" />
           </View>
         </View>
-        
+
         {/* Order Success Message */}
         <View style={styles.successMessageContainer}>
           <Text style={styles.successTitle}>Order Placed Successfully!</Text>
@@ -108,16 +109,16 @@ const OrderConfirmation = ({
             Your order has been placed and will be on its way soon.
           </Text>
         </View>
-        
+
         {/* Order Details Card */}
         <View style={styles.orderCard}>
           <View style={styles.orderIdContainer}>
             <Text style={styles.orderIdLabel}>Order ID</Text>
             <Text style={styles.orderId}>{orderId}</Text>
           </View>
-          
+
           <View style={styles.divider} />
-          
+
           {/* Payment Info */}
           <View style={styles.detailRow}>
             <View style={styles.detailIconContainer}>
@@ -135,7 +136,7 @@ const OrderConfirmation = ({
               )}
             </View>
           </View>
-          
+
           {/* Delivery Address */}
           <View style={styles.detailRow}>
             <View style={styles.detailIconContainer}>
@@ -149,7 +150,7 @@ const OrderConfirmation = ({
               </Text>
             </View>
           </View>
-          
+
           {/* Delivery Time */}
           <View style={styles.detailRow}>
             <View style={styles.detailIconContainer}>
@@ -181,7 +182,7 @@ const OrderConfirmation = ({
               </View>
             </View>
           </View>
-          
+
           {/* Order Summary */}
           <View style={styles.detailRow}>
             <View style={styles.detailIconContainer}>
@@ -190,11 +191,21 @@ const OrderConfirmation = ({
             <View style={styles.detailContent}>
               <Text style={styles.detailLabel}>Order Summary</Text>
               <Text style={styles.detailValue}>{cartItems.length} items</Text>
+
+              {/* Show discount if applied */}
+              {discount && (
+                <Text style={styles.discountApplied}>
+                  Code: {discount.code} ({discount.type === 'percentage'
+                    ? `${discount.value}%`
+                    : `₹${discount.value}`} OFF)
+                </Text>
+              )}
+
               <Text style={styles.orderAmount}>₹{total.toFixed(2)}</Text>
             </View>
           </View>
         </View>
-        
+
         {/* Tips for Delivery */}
         <View style={styles.tipsCard}>
           <Text style={styles.tipsTitle}>While You Wait</Text>
@@ -212,17 +223,17 @@ const OrderConfirmation = ({
           </View>
         </View>
       </ScrollView>
-      
+
       <View style={styles.footer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.trackOrderButton}
           onPress={handleTrackOrder}
         >
           <Text style={styles.trackOrderText}>Track Order</Text>
           <MaterialIcons name="delivery-dining" size={20} color="#FF6B00" />
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.continueButton}
           onPress={handleContinueShopping}
         >
@@ -445,6 +456,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginRight: 8,
+  },
+  discountApplied: {
+    fontSize: 13,
+    color: '#FF6B00',
+    marginTop: 2,
   },
 });
 

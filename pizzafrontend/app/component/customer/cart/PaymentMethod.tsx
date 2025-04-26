@@ -16,7 +16,14 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../../../redux/store';
 // @ts-ignore: Module has no type definitions
 import RazorpayCheckout from 'react-native-razorpay';
-import { clearCart } from '../../../../redux/slices/cartSlice'; // Import the action to clear cart after order
+import { 
+    clearCart, 
+    selectCartItems, 
+    selectSubtotal, 
+    selectDeliveryFee, 
+    selectTaxAmount, 
+    selectTotal 
+} from '../../../../redux/slices/cartSlice'; // Import the selectors
 import { API_URL } from '@/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import uuid from 'react-native-uuid';
@@ -62,40 +69,16 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
     // Get phone from deliveryAddress or use a default
     const phone = deliveryAddress.phone || guestPhone || '9999999999';
 
-    // Access cart state
-    const cartItems = useSelector((state: RootState) => state.cart.items);
+    // Access cart state using selectors
+    const cartItems = useSelector(selectCartItems);
+    const subtotal = useSelector(selectSubtotal);
+    const deliveryFee = useSelector(selectDeliveryFee);
+    const tax = useSelector(selectTaxAmount);
+    const total = useSelector(selectTotal);
 
-    // Calculate values from state
-    const subtotal = useSelector((state: RootState) =>
-        state.cart.items.reduce((sum, item) => {
-            let itemTotal = item.price * item.quantity;
-            if (item.customizations) {
-                Object.values(item.customizations).forEach(option => {
-                    itemTotal += option.price * item.quantity;
-                });
-            }
-            return sum + itemTotal;
-        }, 0)
-    );
-
-    const deliveryFee = useSelector((state: RootState) =>
-        state.cart.items.length > 0 ? state.cart.deliveryFee : 0
-    );
-
-    const tax = useSelector((state: RootState) => {
-        const subTotal = state.cart.items.reduce((sum, item) => {
-            let itemTotal = item.price * item.quantity;
-            if (item.customizations) {
-                Object.values(item.customizations).forEach(option => {
-                    itemTotal += option.price * item.quantity;
-                });
-            }
-            return sum + itemTotal;
-        }, 0);
-        return subTotal * state.cart.taxRate;
-    });
-
-    const total = subtotal + deliveryFee + tax;
+    // Get discount information
+    const appliedDiscount = useSelector((state: RootState) => state.cart.discount);
+    const discountAmount = useSelector((state: RootState) => state.cart.discountAmount || 0);
 
     // Helper function to store guest orders in AsyncStorage
     const storeGuestOrder = async (orderData: any) => {
@@ -180,7 +163,12 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
             // Prepare the order data
             const orderData = {
                 items: formattedItems,
-                amount: total,
+                amount: total, // This is now the discounted total from the selector
+                subtotal: subtotal,
+                discount: discountAmount,
+                discountCode: appliedDiscount ? appliedDiscount.code : '',
+                deliveryFee: deliveryFee,
+                tax: tax,
                 address: {
                     street: deliveryAddress.street,
                     city: deliveryAddress.city,
@@ -288,7 +276,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
             }
 
             // In a real app, you would get an order ID from your backend
-            const orderAmount = Math.round(total * 100); // Convert to paise
+            const orderAmount = Math.round(total * 100); // Convert to paise, using discounted total
             const orderId = `order_${Date.now()}`;
 
             const options = {
@@ -538,6 +526,16 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                             <Text style={styles.infoValue}>₹{subtotal.toFixed(2)}</Text>
                         </View>
 
+                        {/* Show discount if applied */}
+                        {appliedDiscount && discountAmount > 0 && (
+                            <View style={styles.orderInfo}>
+                                <Text style={[styles.infoLabel, styles.discountLabel]}>
+                                    Discount ({appliedDiscount.code})
+                                </Text>
+                                <Text style={styles.discountValue}>-₹{discountAmount.toFixed(2)}</Text>
+                            </View>
+                        )}
+
                         <View style={styles.orderInfo}>
                             <Text style={styles.infoLabel}>Delivery Fee</Text>
                             <Text style={styles.infoValue}>₹{deliveryFee.toFixed(2)}</Text>
@@ -769,6 +767,15 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#333',
         fontWeight: '500',
+    },
+    discountLabel: {
+        color: '#FF6B00',
+        fontWeight: '500',
+    },
+    discountValue: {
+        fontSize: 14,
+        color: '#FF6B00',
+        fontWeight: '600',
     },
     divider: {
         height: 1,
