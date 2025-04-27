@@ -8,6 +8,7 @@ const {
   toggleAvailability,
   toggleSizeAvailability, // New function
   rateMenuItem,
+  getAvailableSizes
 } = require('../controllers/menuController');
 
 const router = express.Router();
@@ -24,5 +25,6 @@ router.put('/:id/toggle-size-availability', protect, admin, toggleSizeAvailabili
 
 // User routes
 router.post('/:id/rate', protect, rateMenuItem);
+router.get('/sizes', getAvailableSizes);
 
 module.exports = router;

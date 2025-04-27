@@ -34,32 +34,42 @@ import {
   AlertCircle,
   RefreshCw,
   Star,
-  Soup
+  Soup,
+  Check,
+  Layers,
+  ChevronRight,
+  Minus
 } from 'lucide-react-native';
 import { API_URL } from '@/config';
-// Add these imports at the top of your file
 import * as ImagePicker from 'expo-image-picker';
-import { launchImageLibrary } from 'react-native-image-picker'; // Change this import
-import { Asset, ImageLibraryOptions, MediaType } from 'react-native-image-picker';
 import { CLOUDINARY_CONFIG } from '@/config';
 
 // Define types
 type Category = 'Pizza' | 'Burger' | 'Grilled Sandwich' | 'Special Combo' | 'Pasta' | 'Noodles' | 'Snacks' | 'Milkshake' | 'Cold Drink' | 'Rice Item' | 'Sweets' | 'Sides';
 type FoodType = 'Veg' | 'Non-Veg' | 'Not Applicable';
 type Size = 'Small' | 'Medium' | 'Large' | 'Not Applicable';
-type ImagePickerAsset = {
-  uri: string;
-  width?: number;
-  height?: number;
-  type?: string;
-  fileName?: string;
-  fileSize?: number;
-};
 
 interface SizeVariation {
   size: Size;
   price: number;
   available: boolean;
+}
+
+interface AddOn {
+  id: string;
+  name: string;
+  price: number;
+  available: boolean;
+  isDefault: boolean; // For options like "Without Onion" that don't add price
+}
+
+interface AddOnGroup {
+  id: string;
+  name: string;
+  minSelection: number;
+  maxSelection: number;
+  required: boolean;
+  addOns: AddOn[];
 }
 
 interface MenuItem {
@@ -77,6 +87,8 @@ interface MenuItem {
   hasMultipleSizes: boolean;
   rating: number;
   ratingCount: number;
+  hasAddOns: boolean;
+  addOnGroups: AddOnGroup[];
 }
 
 const ManageMenu = () => {
@@ -97,9 +109,23 @@ const ManageMenu = () => {
   const [sizeVariations, setSizeVariations] = useState<SizeVariation[]>([]);
   const [newSize, setNewSize] = useState<Size>('Small');
   const [newSizePrice, setNewSizePrice] = useState<string>('');
+  const [addOnGroups, setAddOnGroups] = useState<AddOnGroup[]>([]);
+  const [showAddOnGroupModal, setShowAddOnGroupModal] = useState(false);
+  const [showAddOnModal, setShowAddOnModal] = useState(false);
+  const [currentAddOnGroup, setCurrentAddOnGroup] = useState<AddOnGroup | null>(null);
+  const [newAddOnGroup, setNewAddOnGroup] = useState({
+    name: '',
+    minSelection: 0,
+    maxSelection: 1,
+    required: false
+  });
+  const [newAddOn, setNewAddOn] = useState({
+    name: '',
+    price: '',
+    available: true,
+    isDefault: false
+  });
   const token = useSelector((state: RootState) => state.auth.token);
-
-  // Add this right after your existing state declarations
   const [imageUploading, setImageUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -113,17 +139,144 @@ const ManageMenu = () => {
     available: true,
     popular: false,
     foodType: 'Veg' as FoodType,
+    sizeType: 'single' as 'single' | 'multiple',
     size: 'Medium' as Size,
     sizeVariations: [] as SizeVariation[],
     hasMultipleSizes: false,
-    rating: '', // Changed from 0 to empty string
+    hasAddOns: false,
+    addOnGroups: [] as AddOnGroup[],
+    rating: '',
     ratingCount: 0
   });
 
   const categories: ('All' | Category)[] = ['All', 'Pizza', 'Burger', 'Grilled Sandwich', 'Special Combo', 'Pasta', 'Noodles', 'Snacks', 'Milkshake', 'Cold Drink', 'Rice Item', 'Sweets', 'Sides'];
   const sizes: Size[] = ['Small', 'Medium', 'Large', 'Not Applicable'];
 
-  // Helper function for API calls
+  const categoriesWithAddOns: Category[] = ['Pizza', 'Burger', 'Grilled Sandwich', 'Special Combo', 'Pasta'];
+
+  // Helper functions for add-ons
+  const generateId = () => Math.random().toString(36).substr(2, 9);
+
+  const addAddOnGroup = () => {
+    if (!newAddOnGroup.name) {
+      Alert.alert('Error', 'Please enter a name for the add-on group');
+      return;
+    }
+
+    const group: AddOnGroup = {
+      id: generateId(),
+      name: newAddOnGroup.name,
+      minSelection: newAddOnGroup.minSelection,
+      maxSelection: newAddOnGroup.maxSelection,
+      required: newAddOnGroup.required,
+      addOns: []
+    };
+
+    setAddOnGroups([...addOnGroups, group]);
+    setNewAddOnGroup({
+      name: '',
+      minSelection: 0,
+      maxSelection: 1,
+      required: false
+    });
+    setShowAddOnGroupModal(false);
+  };
+
+  const removeAddOnGroup = (id: string) => {
+    setAddOnGroups(addOnGroups.filter(group => group.id !== id));
+  };
+
+  const addAddOn = () => {
+    if (!newAddOn.name) {
+      Alert.alert('Error', 'Please enter a name for the add-on');
+      return;
+    }
+
+    if (!newAddOn.isDefault && !newAddOn.price) {
+      Alert.alert('Error', 'Please enter a price for the add-on');
+      return;
+    }
+
+    const addOn: AddOn = {
+      id: generateId(),
+      name: newAddOn.name,
+      price: newAddOn.isDefault ? 0 : parseFloat(newAddOn.price),
+      available: newAddOn.available,
+      isDefault: newAddOn.isDefault
+    };
+
+    if (currentAddOnGroup) {
+      const updatedGroups = addOnGroups.map(group => {
+        if (group.id === currentAddOnGroup.id) {
+          return {
+            ...group,
+            addOns: [...group.addOns, addOn]
+          };
+        }
+        return group;
+      });
+      setAddOnGroups(updatedGroups);
+    }
+
+    setNewAddOn({
+      name: '',
+      price: '',
+      available: true,
+      isDefault: false
+    });
+    setShowAddOnModal(false);
+  };
+
+  const removeAddOn = (groupId: string, addOnId: string) => {
+    const updatedGroups = addOnGroups.map(group => {
+      if (group.id === groupId) {
+        return {
+          ...group,
+          addOns: group.addOns.filter(addOn => addOn.id !== addOnId)
+        };
+      }
+      return group;
+    });
+    setAddOnGroups(updatedGroups);
+  };
+
+  const toggleAddOnAvailability = (groupId: string, addOnId: string) => {
+    const updatedGroups = addOnGroups.map(group => {
+      if (group.id === groupId) {
+        return {
+          ...group,
+          addOns: group.addOns.map(addOn => {
+            if (addOn.id === addOnId) {
+              return {
+                ...addOn,
+                available: !addOn.available
+              };
+            }
+            return addOn;
+          })
+        };
+      }
+      return group;
+    });
+    setAddOnGroups(updatedGroups);
+  };
+
+  const toggleAddOnGroupRequired = (groupId: string) => {
+    const updatedGroups = addOnGroups.map(group => {
+      if (group.id === groupId) {
+        return {
+          ...group,
+          required: !group.required
+        };
+      }
+      return group;
+    });
+    setAddOnGroups(updatedGroups);
+  };
+
+  // Rest of your existing functions (apiRequest, fetchMenuItems, etc.) remain the same
+  // Just make sure to include addOnGroups in your form data when saving
+
   const apiRequest = async (url: string, method: string, body?: any) => {
     const headers = {
       'Content-Type': 'application/json',
@@ -148,7 +301,6 @@ const ManageMenu = () => {
     }
   };
 
-  // Fetch menu items from backend with filtering
   const fetchMenuItems = async () => {
     try {
       setLoading(true);
@@ -184,26 +336,19 @@ const ManageMenu = () => {
     }
   };
 
-  // Refresh data
   const handleRefresh = () => {
     setRefreshing(true);
     fetchMenuItems();
   };
 
-
-
-
   const handleImagePick = async () => {
     try {
-      // Request permission first
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'You need to grant camera roll permissions to upload images.');
         return;
       }
 
-      // Launch image picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -211,21 +356,15 @@ const ManageMenu = () => {
         quality: 0.7,
       });
 
-      console.log('Image picker result:', result);
-
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedImage = result.assets[0];
-
-        // Convert to format needed for cloudinary upload
-        const assetForUpload: ImagePickerAsset = {
+        await uploadImageToCloudinary({
           uri: selectedImage.uri,
-          type: 'image/jpeg', // Expo doesn't provide type, so we assume jpeg
+          type: 'image/jpeg',
           fileName: selectedImage.uri.split('/').pop() || 'upload.jpg',
           width: selectedImage.width,
           height: selectedImage.height,
-        };
-
-        await uploadImageToCloudinary(assetForUpload);
+        });
       }
     } catch (error) {
       console.error('Image selection error:', error);
@@ -233,9 +372,7 @@ const ManageMenu = () => {
     }
   };
 
-  // Update the uploadImageToCloudinary function with better error handling
-
-  const uploadImageToCloudinary = async (image: ImagePickerAsset) => {
+  const uploadImageToCloudinary = async (image: any) => {
     if (!image.uri) {
       Alert.alert('Error', 'No image found to upload');
       return;
@@ -245,34 +382,18 @@ const ManageMenu = () => {
     setUploadProgress(0);
 
     try {
-      console.log('Starting upload to Cloudinary with config:', {
-        cloudName: CLOUDINARY_CONFIG.cloudName,
-        uploadPreset: CLOUDINARY_CONFIG.uploadPreset,
-        folder: CLOUDINARY_CONFIG.folder
-      });
-
-      // Create form data for upload
       const cloudinaryFormData = new FormData();
-
-      // Add the image file
       cloudinaryFormData.append('file', {
         uri: image.uri,
-        type: image.type || 'image/jpeg', // Changed from mimeType to type to match your type definition
+        type: image.type || 'image/jpeg',
         name: image.fileName || 'upload.jpg',
       } as any);
-
-      // Add upload parameters
       cloudinaryFormData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
-
-      // Only add folder if it exists in config
       if (CLOUDINARY_CONFIG.folder) {
         cloudinaryFormData.append('folder', CLOUDINARY_CONFIG.folder);
       }
 
       const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/image/upload`;
-      console.log('Uploading to URL:', uploadUrl);
-
-      // Upload to Cloudinary
       const response = await fetch(uploadUrl, {
         method: 'POST',
         body: cloudinaryFormData,
@@ -283,7 +404,6 @@ const ManageMenu = () => {
 
       setUploadProgress(100);
 
-      // Get detailed error message
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Cloudinary error response:', errorText);
@@ -291,15 +411,10 @@ const ManageMenu = () => {
       }
 
       const data = await response.json();
-      console.log('Upload success, received URL:', data.secure_url);
-
-      // Update form with the Cloudinary URL
       setFormData({
         ...formData,
         image: data.secure_url,
       });
-
-      Alert.alert('Success', 'Image uploaded successfully');
     } catch (error) {
       console.error('Upload error:', error);
       Alert.alert('Upload Failed', 'Failed to upload image to Cloudinary. Please check your configuration and try again.');
@@ -308,40 +423,29 @@ const ManageMenu = () => {
     }
   };
 
-  // Initial data fetch
   useEffect(() => {
     fetchMenuItems();
   }, [selectedCategory, onlyVeg]);
 
   const getCategoryIcon = (category: Category) => {
     switch (category) {
-      case 'Pizza':
-        return <Pizza size={16} color="#FF6B00" />;
-      case 'Burger':
-        return <Donut size={16} color="#FF6B00" />;
-      case 'Grilled Sandwich':
-        return <Sandwich size={16} color="#FF6B00" />;
-      case 'Special Combo':
-        return <Utensils size={16} color="#FF6B00" />;
+      case 'Pizza': return <Pizza size={16} color="#FF6B00" />;
+      case 'Burger': return <Donut size={16} color="#FF6B00" />;
+      case 'Grilled Sandwich': return <Sandwich size={16} color="#FF6B00" />;
+      case 'Special Combo': return <Utensils size={16} color="#FF6B00" />;
       case 'Pasta':
-      case 'Noodles':
-        return <Soup size={16} color="#FF6B00" />;
+      case 'Noodles': return <Soup size={16} color="#FF6B00" />;
       case 'Milkshake':
-      case 'Cold Drink':
-        return <Coffee size={16} color="#FF6B00" />;
-      default:
-        return <Utensils size={16} color="#FF6B00" />;
+      case 'Cold Drink': return <Coffee size={16} color="#FF6B00" />;
+      default: return <Utensils size={16} color="#FF6B00" />;
     }
   };
 
   const getFoodTypeColor = (foodType: FoodType) => {
     switch (foodType) {
-      case 'Veg':
-        return '#4CAF50';
-      case 'Non-Veg':
-        return '#F44336';
-      default:
-        return '#666666';
+      case 'Veg': return '#4CAF50';
+      case 'Non-Veg': return '#F44336';
+      default: return '#666666';
     }
   };
 
@@ -355,13 +459,17 @@ const ManageMenu = () => {
       available: true,
       popular: false,
       foodType: 'Veg',
+      sizeType: 'single',
       size: 'Medium',
       sizeVariations: [],
       hasMultipleSizes: false,
+      hasAddOns: false,
+      addOnGroups: [],
       rating: '',
       ratingCount: 0
     });
     setSizeVariations([]);
+    setAddOnGroups([]);
   };
 
   const addSizeVariation = () => {
@@ -370,9 +478,15 @@ const ManageMenu = () => {
       return;
     }
 
+    const price = parseFloat(newSizePrice);
+    if (price <= 0) {
+      Alert.alert('Error', 'Price must be greater than 0');
+      return;
+    }
+
     const newVariation: SizeVariation = {
       size: newSize,
-      price: parseFloat(newSizePrice),
+      price,
       available: true
     };
 
@@ -387,15 +501,33 @@ const ManageMenu = () => {
     setSizeVariations(updatedVariations);
   };
 
-  // Change 6: Update the handleAddItem function to handle empty rating
   const handleAddItem = async () => {
     try {
+      if (!formData.name || !formData.description || !formData.category) {
+        Alert.alert('Validation Error', 'Please fill all required fields');
+        return;
+      }
+
+      if (formData.sizeType === 'single' && !formData.price) {
+        Alert.alert('Validation Error', 'Please enter a price for this item');
+        return;
+      }
+
+      if (formData.sizeType === 'multiple' && sizeVariations.length === 0) {
+        Alert.alert('Validation Error', 'Please add at least one size variation');
+        return;
+      }
+
       const newItem = {
         ...formData,
-        price: parseFloat(formData.price),
-        rating: formData.rating === '' ? 0 : parseFloat(formData.rating), // Handle empty rating
-        sizeVariations: sizeVariations.length > 0 ? sizeVariations : [],
-        hasMultipleSizes: sizeVariations.length > 0
+        price: formData.sizeType === 'single' ? parseFloat(formData.price) : 0, // Default price for single size items
+        rating: formData.rating === '' ? 0 : parseFloat(formData.rating),
+        sizeVariations: formData.sizeType === 'multiple' ? sizeVariations : [],
+        hasMultipleSizes: formData.sizeType === 'multiple',
+        size: formData.sizeType === 'single' ? formData.size : 'Not Applicable',
+        sizeType: formData.sizeType, // Explicitly send sizeType
+        hasAddOns: categoriesWithAddOns.includes(formData.category) && formData.hasAddOns,
+        addOnGroups: categoriesWithAddOns.includes(formData.category) ? addOnGroups : []
       };
 
       const data = await apiRequest('/api/menu', 'POST', newItem);
@@ -409,17 +541,20 @@ const ManageMenu = () => {
     }
   };
 
-  // Edit menu item
   const handleEditItem = async () => {
     if (!currentItem) return;
 
     try {
       const updatedItem = {
         ...formData,
-        price: parseFloat(formData.price),
-        rating: formData.rating === '' ? 0 : parseFloat(formData.rating), // Handle empty rating
-        sizeVariations: sizeVariations.length > 0 ? sizeVariations : [],
-        hasMultipleSizes: sizeVariations.length > 0
+        price: formData.sizeType === 'single' ? parseFloat(formData.price) : 0,
+        rating: formData.rating === '' ? 0 : parseFloat(formData.rating),
+        sizeVariations: formData.sizeType === 'multiple' ? sizeVariations : [],
+        hasMultipleSizes: formData.sizeType === 'multiple',
+        size: formData.sizeType === 'single' ? formData.size : 'Not Applicable',
+        sizeType: formData.sizeType, // Explicitly send sizeType
+        hasAddOns: categoriesWithAddOns.includes(formData.category) && formData.hasAddOns,
+        addOnGroups: categoriesWithAddOns.includes(formData.category) ? addOnGroups : []
       };
 
       const data = await apiRequest(`/api/menu/${currentItem._id}`, 'PUT', updatedItem);
@@ -435,7 +570,6 @@ const ManageMenu = () => {
     }
   };
 
-  // Delete menu item
   const handleDeleteItem = async () => {
     if (!currentItem) return;
 
@@ -444,14 +578,12 @@ const ManageMenu = () => {
       setMenuItems(menuItems.filter(item => item._id !== currentItem._id));
       setShowDeleteModal(false);
       setCurrentItem(null);
-      // Alert.alert('Success', 'Menu item deleted successfully');
     } catch (error) {
       Alert.alert('Error', 'Failed to delete menu item');
       console.error('Error deleting menu item:', error);
     }
   };
 
-  // Toggle availability
   const toggleAvailability = async (id: string) => {
     try {
       const item = menuItems.find(item => item._id === id);
@@ -473,7 +605,6 @@ const ManageMenu = () => {
     }
   };
 
-  // Toggle size availability
   const toggleSizeAvailability = async (id: string, size: Size) => {
     try {
       const data = await apiRequest(
@@ -491,24 +622,6 @@ const ManageMenu = () => {
     }
   };
 
-  // Rate menu item
-  const rateMenuItem = async (id: string, rating: number) => {
-    try {
-      const data = await apiRequest(
-        `/api/menu/${id}/rate`,
-        'POST',
-        { rating }
-      );
-
-      setMenuItems(menuItems.map(item =>
-        item._id === id ? data : item
-      ));
-    } catch (error) {
-      Alert.alert('Error', 'Failed to rate menu item');
-      console.error('Error rating menu item:', error);
-    }
-  };
-
   const openEditModal = (item: MenuItem) => {
     setCurrentItem(item);
     setFormData({
@@ -520,13 +633,17 @@ const ManageMenu = () => {
       available: item.available,
       popular: item.popular,
       foodType: item.foodType,
+      sizeType: item.hasMultipleSizes ? 'multiple' : 'single',
       size: item.size,
       sizeVariations: item.sizeVariations,
       hasMultipleSizes: item.hasMultipleSizes,
+      hasAddOns: item.hasAddOns,
+      addOnGroups: item.addOnGroups,
       rating: item.rating.toString(),
       ratingCount: item.ratingCount
     });
     setSizeVariations(item.sizeVariations || []);
+    setAddOnGroups(item.addOnGroups || []);
     setShowEditModal(true);
   };
 
@@ -543,17 +660,79 @@ const ManageMenu = () => {
     return matchesSearch;
   });
 
+
   const getPriceDisplay = (item: MenuItem) => {
     if (item.hasMultipleSizes && item.sizeVariations.length > 0) {
       const prices = item.sizeVariations.map(v => v.price);
       const minPrice = Math.min(...prices);
       const maxPrice = Math.max(...prices);
-      return `$${minPrice.toFixed(2)} - $${maxPrice.toFixed(2)}`;
+      return `₹${minPrice.toFixed(2)} - ₹${maxPrice.toFixed(2)}`;
     }
-    return `$${item.price.toFixed(2)}`;
+    return `₹${item.price.toFixed(2)}`;
   };
 
-  // Render menu item card
+  const renderAddOnGroup = (group: AddOnGroup) => (
+    <View key={group.id} style={styles.addOnGroupContainer}>
+      <View style={styles.addOnGroupHeader}>
+        <Text style={styles.addOnGroupName}>{group.name}</Text>
+        <View style={styles.addOnGroupActions}>
+          <TouchableOpacity
+            style={styles.addOnGroupActionButton}
+            onPress={() => {
+              setCurrentAddOnGroup(group);
+              setShowAddOnModal(true);
+            }}
+          >
+            <Plus size={16} color="#FF6B00" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addOnGroupActionButton}
+            onPress={() => removeAddOnGroup(group.id)}
+          >
+            <Trash2 size={16} color="#F44336" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addOnGroupActionButton}
+            onPress={() => toggleAddOnGroupRequired(group.id)}
+          >
+            <Text style={[styles.requiredText, group.required && styles.requiredTextActive]}>
+              {group.required ? 'Required' : 'Optional'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <Text style={styles.addOnGroupSelectionText}>
+        Select {group.minSelection} to {group.maxSelection} options
+      </Text>
+
+      <View style={styles.addOnsList}>
+        {group.addOns.map(addOn => (
+          <View key={addOn.id} style={styles.addOnItem}>
+            <View style={styles.addOnInfo}>
+              <Switch
+                trackColor={{ false: "#CCCCCC", true: "#FFD2B3" }}
+                thumbColor={addOn.available ? "#FF6B00" : "#F4F4F4"}
+                onValueChange={() => toggleAddOnAvailability(group.id, addOn.id)}
+                value={addOn.available}
+              />
+              <Text style={styles.addOnName}>{addOn.name}</Text>
+            </View>
+            {!addOn.isDefault && (
+              <Text style={styles.addOnPrice}>+${addOn.price.toFixed(2)}</Text>
+            )}
+            <TouchableOpacity
+              style={styles.removeAddOnButton}
+              onPress={() => removeAddOn(group.id, addOn.id)}
+            >
+              <X size={16} color="#F44336" />
+            </TouchableOpacity>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+
   const renderMenuItem = ({ item }: { item: MenuItem }) => (
     <View style={styles.menuItemCard}>
       <View style={styles.menuItemHeader}>
@@ -584,6 +763,11 @@ const ManageMenu = () => {
             ) : (
               <View style={styles.detailBadge}>
                 <Text style={styles.detailText}>{item.size}</Text>
+              </View>
+            )}
+            {item.hasAddOns && (
+              <View style={styles.detailBadge}>
+                <Text style={styles.detailText}>Customizable</Text>
               </View>
             )}
             <View style={styles.ratingContainer}>
@@ -842,7 +1026,7 @@ const ManageMenu = () => {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Name</Text>
+                <Text style={styles.formLabel}>Name *</Text>
                 <TextInput
                   style={styles.input}
                   value={formData.name}
@@ -852,7 +1036,7 @@ const ManageMenu = () => {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Description</Text>
+                <Text style={styles.formLabel}>Description *</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   value={formData.description}
@@ -864,260 +1048,8 @@ const ManageMenu = () => {
               </View>
 
               <View style={styles.formRow}>
-                <View style={[styles.formGroup, { flex: 1, marginRight: 10 }]}>
-                  <Text style={styles.formLabel}>Base Price ($)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.price}
-                    onChangeText={(text) => setFormData({ ...formData, price: text })}
-                    placeholder="0.00"
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-
                 <View style={[styles.formGroup, { flex: 1 }]}>
                   <Text style={styles.formLabel}>Initial Rating</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.rating.toString()}
-                    onChangeText={(text) => setFormData({ ...formData, rating: text })} // Changed to store as string
-                    placeholder="0.0"
-                    keyboardType="numeric"
-                  />
-                </View>
-              </View>
-
-              <View style={styles.formRow}>
-                <View style={[styles.formGroup, { flex: 1, marginRight: 10 }]}>
-                  <Text style={styles.formLabel}>Category</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownButton}
-                    onPress={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
-                  >
-                    <Text>{formData.category}</Text>
-                    <ChevronDown size={16} color="#666" />
-                  </TouchableOpacity>
-
-                  {categoryDropdownOpen && (
-                    <View style={styles.dropdownMenuContainer}>
-                      <ScrollView style={styles.dropdownMenu} nestedScrollEnabled={true}>
-                        {(categories.slice(1) as Category[]).map((cat: Category) => (
-                          <TouchableOpacity
-                            key={cat}
-                            style={styles.dropdownItem}
-                            onPress={() => {
-                              setFormData({ ...formData, category: cat });
-                              setCategoryDropdownOpen(false);
-                            }}
-                          >
-                            <Text>{cat}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-
-                <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.formLabel}>Food Type</Text>
-                  <TouchableOpacity
-                    style={styles.dropdownButton}
-                    onPress={() => setFoodTypeMenuOpen(!foodTypeMenuOpen)}
-                  >
-                    <Text>{formData.foodType}</Text>
-                    <ChevronDown size={16} color="#666" />
-                  </TouchableOpacity>
-
-                  {foodTypeMenuOpen && (
-                    <View style={styles.dropdownMenu}>
-                      {['Veg', 'Non-Veg', 'Not Applicable'].map((type) => (
-                        <TouchableOpacity
-                          key={type}
-                          style={styles.dropdownItem}
-                          onPress={() => {
-                            setFormData({ ...formData, foodType: type as FoodType });
-                            setFoodTypeMenuOpen(false);
-                          }}
-                        >
-                          <Text>{type}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Size Variations</Text>
-                <View style={styles.sizeVariationsContainer}>
-                  {sizeVariations.map((variation, index) => (
-                    <View key={index} style={styles.sizeVariationItem}>
-                      <Text style={styles.sizeVariationText}>
-                        {variation.size}: ${variation.price.toFixed(2)}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => removeSizeVariation(index)}
-                        style={styles.removeSizeButton}
-                      >
-                        <X size={16} color="#F44336" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-
-                <View style={styles.addSizeContainer}>
-                  <View style={styles.sizeInputContainer}>
-                    <Text style={styles.sizeLabel}>Size:</Text>
-                    <TouchableOpacity
-                      style={styles.sizeDropdownButton}
-                      onPress={() => setSizeMenuOpen(!sizeMenuOpen)}
-                    >
-                      <Text>{newSize}</Text>
-                      <ChevronDown size={16} color="#666" />
-                    </TouchableOpacity>
-
-                    {sizeMenuOpen && (
-                      <View style={styles.dropdownMenuContainer}>
-                        <ScrollView style={styles.sizeDropdownMenu} nestedScrollEnabled={true}>
-                          {sizes.map((size) => (
-                            <TouchableOpacity
-                              key={size}
-                              style={styles.dropdownItem}
-                              onPress={() => {
-                                setNewSize(size);
-                                setSizeMenuOpen(false);
-                              }}
-                            >
-                              <Text>{size}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={styles.priceInputContainer}>
-                    <Text style={styles.sizeLabel}>Price:</Text>
-                    <TextInput
-                      style={styles.sizePriceInput}
-                      value={newSizePrice}
-                      onChangeText={setNewSizePrice}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.addSizeButton}
-                    onPress={addSizeVariation}
-                  >
-                    <Plus size={16} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.formRow}>
-                <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.formLabel}>Available</Text>
-                  <Switch
-                    trackColor={{ false: "#CCCCCC", true: "#FFD2B3" }}
-                    thumbColor={formData.available ? "#FF6B00" : "#F4F4F4"}
-                    onValueChange={(value) => setFormData({ ...formData, available: value })}
-                    value={formData.available}
-                  />
-                </View>
-
-                <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.formLabel}>Mark as Popular</Text>
-                  <Switch
-                    trackColor={{ false: "#CCCCCC", true: "#FFD2B3" }}
-                    thumbColor={formData.popular ? "#FF6B00" : "#F4F4F4"}
-                    onValueChange={(value) => setFormData({ ...formData, popular: value })}
-                    value={formData.popular}
-                  />
-                </View>
-              </View>
-            </ScrollView>
-
-            <TouchableOpacity style={styles.saveButton} onPress={handleAddItem}>
-              <Save size={20} color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>Add Item</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Edit Item Modal */}
-      <Modal
-        visible={showEditModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowEditModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Menu Item</Text>
-              <TouchableOpacity onPress={() => setShowEditModal(false)}>
-                <X size={24} color="#1F2937" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.formContainer}>
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Current Image</Text>
-                <View style={styles.currentImageContainer}>
-                  <Image source={{ uri: formData.image }} style={styles.currentImage} />
-                  <TouchableOpacity
-                    style={styles.changeImageButton}
-                    onPress={handleImagePick}
-                    disabled={imageUploading}
-                  >
-                    {imageUploading ? (
-                      <ActivityIndicator size="small" color="#FF6B00" />
-                    ) : (
-                      <Text style={styles.changeImageText}>Change Image</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Name</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.name}
-                  onChangeText={(text) => setFormData({ ...formData, name: text })}
-                  placeholder="Enter item name"
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Description</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  value={formData.description}
-                  onChangeText={(text) => setFormData({ ...formData, description: text })}
-                  placeholder="Enter description"
-                  multiline={true}
-                  numberOfLines={3}
-                />
-              </View>
-
-              <View style={styles.formRow}>
-                <View style={[styles.formGroup, { flex: 1, marginRight: 10 }]}>
-                  <Text style={styles.formLabel}>Base Price ($)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={formData.price}
-                    onChangeText={(text) => setFormData({ ...formData, price: text })}
-                    placeholder="0.00"
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-
-                <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.formLabel}>Rating</Text>
                   <TextInput
                     style={styles.input}
                     value={formData.rating.toString()}
@@ -1130,7 +1062,7 @@ const ManageMenu = () => {
 
               <View style={styles.formRow}>
                 <View style={[styles.formGroup, { flex: 1, marginRight: 10 }]}>
-                  <Text style={styles.formLabel}>Category</Text>
+                  <Text style={styles.formLabel}>Category *</Text>
                   <TouchableOpacity
                     style={styles.dropdownButton}
                     onPress={() => setCategoryDropdownOpen(!categoryDropdownOpen)}
@@ -1147,7 +1079,11 @@ const ManageMenu = () => {
                             key={cat}
                             style={styles.dropdownItem}
                             onPress={() => {
-                              setFormData({ ...formData, category: cat });
+                              setFormData({
+                                ...formData,
+                                category: cat,
+                                hasAddOns: categoriesWithAddOns.includes(cat) ? formData.hasAddOns : false
+                              });
                               setCategoryDropdownOpen(false);
                             }}
                           >
@@ -1160,7 +1096,7 @@ const ManageMenu = () => {
                 </View>
 
                 <View style={[styles.formGroup, { flex: 1 }]}>
-                  <Text style={styles.formLabel}>Food Type</Text>
+                  <Text style={styles.formLabel}>Food Type *</Text>
                   <TouchableOpacity
                     style={styles.dropdownButton}
                     onPress={() => setFoodTypeMenuOpen(!foodTypeMenuOpen)}
@@ -1189,73 +1125,211 @@ const ManageMenu = () => {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.formLabel}>Size Variations</Text>
-                <View style={styles.sizeVariationsContainer}>
-                  {sizeVariations.map((variation, index) => (
-                    <View key={index} style={styles.sizeVariationItem}>
-                      <Text style={styles.sizeVariationText}>
-                        {variation.size}: ${variation.price.toFixed(2)}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => removeSizeVariation(index)}
-                        style={styles.removeSizeButton}
-                      >
-                        <X size={16} color="#F44336" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-
-                <View style={styles.addSizeContainer}>
-                  <View style={styles.sizeInputContainer}>
-                    <Text style={styles.sizeLabel}>Size:</Text>
-                    <TouchableOpacity
-                      style={styles.sizeDropdownButton}
-                      onPress={() => setSizeMenuOpen(!sizeMenuOpen)}
-                    >
-                      <Text>{newSize}</Text>
-                      <ChevronDown size={16} color="#666" />
-                    </TouchableOpacity>
-
-                    {sizeMenuOpen && (
-                      <View style={styles.dropdownMenuContainer}>
-                        <ScrollView style={styles.sizeDropdownMenu} nestedScrollEnabled={true}>
-                          {sizes.map((size) => (
-                            <TouchableOpacity
-                              key={size}
-                              style={styles.dropdownItem}
-                              onPress={() => {
-                                setNewSize(size);
-                                setSizeMenuOpen(false);
-                              }}
-                            >
-                              <Text>{size}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={styles.priceInputContainer}>
-                    <Text style={styles.sizeLabel}>Price:</Text>
-                    <TextInput
-                      style={styles.sizePriceInput}
-                      value={newSizePrice}
-                      onChangeText={setNewSizePrice}
-                      placeholder="0.00"
-                      keyboardType="decimal-pad"
-                    />
-                  </View>
-
+                <Text style={styles.formLabel}>Pricing Type *</Text>
+                <View style={styles.segmentedControl}>
                   <TouchableOpacity
-                    style={styles.addSizeButton}
-                    onPress={addSizeVariation}
+                    style={[
+                      styles.segmentedButton,
+                      formData.sizeType === 'single' && styles.segmentedButtonActive
+                    ]}
+                    onPress={() => {
+                      setFormData({
+                        ...formData,
+                        sizeType: 'single',
+                        hasMultipleSizes: false,
+                        sizeVariations: []
+                      });
+                    }}
                   >
-                    <Plus size={16} color="#FFFFFF" />
+                    {formData.sizeType === 'single' && (
+                      <Check size={16} color="#FF6B00" style={styles.segmentedCheckIcon} />
+                    )}
+                    <Text
+                      style={[
+                        styles.segmentedButtonText,
+                        formData.sizeType === 'single' && styles.segmentedButtonTextActive
+                      ]}
+                    >
+                      Single Price
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentedButton,
+                      formData.sizeType === 'multiple' && styles.segmentedButtonActive
+                    ]}
+                    onPress={() => {
+                      setFormData({
+                        ...formData,
+                        sizeType: 'multiple',
+                        hasMultipleSizes: true,
+                        price: ''
+                      });
+                    }}
+                  >
+                    {formData.sizeType === 'multiple' && (
+                      <Check size={16} color="#FF6B00" style={styles.segmentedCheckIcon} />
+                    )}
+                    <Text
+                      style={[
+                        styles.segmentedButtonText,
+                        formData.sizeType === 'multiple' && styles.segmentedButtonTextActive
+                      ]}
+                    >
+                      Multiple Sizes
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
+
+              {formData.sizeType === 'single' ? (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Price ($) *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={formData.price}
+                    onChangeText={(text) => {
+                      const filtered = text.replace(/[^0-9.]/g, '');
+                      setFormData({ ...formData, price: filtered });
+                    }}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              ) : (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Size Variations *</Text>
+                  {sizeVariations.length === 0 && (
+                    <Text style={styles.warningText}>
+                      Please add at least one size variation
+                    </Text>
+                  )}
+
+                  <View style={styles.sizeVariationsContainer}>
+                    {sizeVariations.map((variation, index) => (
+                      <View key={index} style={styles.sizeVariationItem}>
+                        <View style={styles.sizeVariationInfo}>
+                          <Text style={styles.sizeVariationText}>
+                            {variation.size} - ₹{variation.price.toFixed(2)}
+                          </Text>
+                          <Switch
+                            trackColor={{ false: '#CCCCCC', true: '#FFD2B3' }}
+                            thumbColor={variation.available ? '#FF6B00' : '#F4F4F4'}
+                            onValueChange={() => {
+                              const updatedVariations = [...sizeVariations];
+                              updatedVariations[index].available = !updatedVariations[index].available;
+                              setSizeVariations(updatedVariations);
+                            }}
+                            value={variation.available}
+                          />
+                        </View>
+                        <TouchableOpacity
+                          style={styles.removeSizeButton}
+                          onPress={() => removeSizeVariation(index)}
+                        >
+                          <Trash2 size={16} color="#F44336" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={styles.addSizeContainer}>
+                    <View style={styles.sizeInputContainer}>
+                      <Text style={styles.sizeLabel}>Size:</Text>
+                      <TouchableOpacity
+                        style={styles.sizeDropdownButton}
+                        onPress={() => setSizeMenuOpen(!sizeMenuOpen)}
+                      >
+                        <Text style={styles.sizeDropdownText}>{newSize}</Text>
+                        <ChevronDown size={16} color="#666" />
+                      </TouchableOpacity>
+
+                      {sizeMenuOpen && (
+                        <View style={styles.dropdownMenuContainer}>
+                          <ScrollView style={styles.sizeDropdownMenu}>
+                            {sizes.map((sizeOption) => (
+                              <TouchableOpacity
+                                key={sizeOption}
+                                style={styles.sizeDropdownItem}
+                                onPress={() => {
+                                  setNewSize(sizeOption);
+                                  setSizeMenuOpen(false);
+                                }}
+                              >
+                                <Text style={styles.dropdownItemText}>{sizeOption}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.priceInputContainer}>
+                      <Text style={styles.formLabel}>Price (₹) *</Text>
+                      <TextInput
+                        style={styles.sizePriceInput}
+                        value={newSizePrice}
+                        onChangeText={(text) => {
+                          const filtered = text.replace(/[^0-9.]/g, '');
+                          setNewSizePrice(filtered);
+                        }}
+                        placeholder="0.00"
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.addSizeButton}
+                      onPress={addSizeVariation}
+                      disabled={!newSizePrice}
+                    >
+                      <Plus size={16} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {categoriesWithAddOns.includes(formData.category) && (
+                <View style={styles.formGroup}>
+                  <View style={styles.addOnsHeader}>
+                    <Text style={styles.formLabel}>Customization Options</Text>
+                    <TouchableOpacity
+                      style={styles.toggleSwitchContainer}
+                      onPress={() => setFormData({ ...formData, hasAddOns: !formData.hasAddOns })}
+                    >
+                      <Text style={styles.toggleSwitchText}>
+                        {formData.hasAddOns ? 'Enabled' : 'Disabled'}
+                      </Text>
+                      <Switch
+                        trackColor={{ false: "#CCCCCC", true: "#FFD2B3" }}
+                        thumbColor={formData.hasAddOns ? "#FF6B00" : "#F4F4F4"}
+                        onValueChange={(value) => setFormData({ ...formData, hasAddOns: value })}
+                        value={formData.hasAddOns}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {formData.hasAddOns && (
+                    <>
+                      {addOnGroups.length === 0 && (
+                        <Text style={styles.warningText}>
+                          Add at least one customization group
+                        </Text>
+                      )}
+
+                      {addOnGroups.map(renderAddOnGroup)}
+
+                      <TouchableOpacity
+                        style={styles.addAddOnGroupButton}
+                        onPress={() => setShowAddOnGroupModal(true)}
+                      >
+                        <Plus size={16} color="#FF6B00" />
+                        <Text style={styles.addAddOnGroupButtonText}>Add Customization Group</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              )}
 
               <View style={styles.formRow}>
                 <View style={[styles.formGroup, { flex: 1 }]}>
@@ -1280,47 +1354,217 @@ const ManageMenu = () => {
               </View>
             </ScrollView>
 
-            <TouchableOpacity style={styles.saveButton} onPress={handleEditItem}>
+            <TouchableOpacity
+              style={[
+                styles.saveButton,
+                (!formData.name || !formData.description ||
+                  (formData.sizeType === 'single' && !formData.price) ||
+                  (formData.sizeType === 'multiple' && sizeVariations.length === 0) ||
+                  (formData.hasAddOns && addOnGroups.length === 0)) &&
+                styles.saveButtonDisabled
+              ]}
+              onPress={handleAddItem}
+              disabled={
+                !formData.name || !formData.description ||
+                (formData.sizeType === 'single' && !formData.price) ||
+                (formData.sizeType === 'multiple' && sizeVariations.length === 0) ||
+                (formData.hasAddOns && addOnGroups.length === 0)
+              }
+            >
               <Save size={20} color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>Update Item</Text>
+              <Text style={styles.saveButtonText}>Add Item</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Delete Confirmation Modal */}
+      {/* Add On Group Modal */}
       <Modal
-        visible={showDeleteModal}
-        animationType="fade"
+        visible={showAddOnGroupModal}
+        animationType="slide"
         transparent={true}
-        onRequestClose={() => setShowDeleteModal(false)}
+        onRequestClose={() => setShowAddOnGroupModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.confirmModalContent}>
-            <View style={styles.deleteIconContainer}>
-              <AlertCircle size={40} color="#F44336" />
-            </View>
-            <Text style={styles.deleteTitle}>Delete Item</Text>
-            <Text style={styles.deleteMessage}>
-              Are you sure you want to delete "{currentItem?.name}"? This action cannot be undone.
-            </Text>
-            <View style={styles.deleteActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowDeleteModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+          <View style={styles.smallModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Customization Group</Text>
+              <TouchableOpacity onPress={() => setShowAddOnGroupModal(false)}>
+                <X size={24} color="#1F2937" />
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.formContainer}>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Group Name *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newAddOnGroup.name}
+                  onChangeText={(text) => setNewAddOnGroup({ ...newAddOnGroup, name: text })}
+                  placeholder="e.g., Cheese Options, Toppings"
+                />
+              </View>
+
+              <View style={styles.formRow}>
+                <View style={[styles.formGroup, { flex: 1, marginRight: 10 }]}>
+                  <Text style={styles.formLabel}>Min Selections</Text>
+                  <View style={styles.numberInputContainer}>
+                    <TouchableOpacity
+                      style={styles.numberInputButton}
+                      onPress={() => {
+                        if (newAddOnGroup.minSelection > 0) {
+                          setNewAddOnGroup({ ...newAddOnGroup, minSelection: newAddOnGroup.minSelection - 1 });
+                        }
+                      }}
+                    >
+                      <Minus size={16} color="#666" />
+                    </TouchableOpacity>
+                    <Text style={styles.numberInputText}>{newAddOnGroup.minSelection}</Text>
+                    <TouchableOpacity
+                      style={styles.numberInputButton}
+                      onPress={() => {
+                        if (newAddOnGroup.minSelection < newAddOnGroup.maxSelection) {
+                          setNewAddOnGroup({ ...newAddOnGroup, minSelection: newAddOnGroup.minSelection + 1 });
+                        }
+                      }}
+                    >
+                      <Plus size={16} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={[styles.formGroup, { flex: 1 }]}>
+                  <Text style={styles.formLabel}>Max Selections</Text>
+                  <View style={styles.numberInputContainer}>
+                    <TouchableOpacity
+                      style={styles.numberInputButton}
+                      onPress={() => {
+                        if (newAddOnGroup.maxSelection > 1 && newAddOnGroup.maxSelection > newAddOnGroup.minSelection) {
+                          setNewAddOnGroup({ ...newAddOnGroup, maxSelection: newAddOnGroup.maxSelection - 1 });
+                        }
+                      }}
+                    >
+                      <Minus size={16} color="#666" />
+                    </TouchableOpacity>
+                    <Text style={styles.numberInputText}>{newAddOnGroup.maxSelection}</Text>
+                    <TouchableOpacity
+                      style={styles.numberInputButton}
+                      onPress={() => {
+                        setNewAddOnGroup({ ...newAddOnGroup, maxSelection: newAddOnGroup.maxSelection + 1 });
+                      }}
+                    >
+                      <Plus size={16} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Required</Text>
+                <Switch
+                  trackColor={{ false: "#CCCCCC", true: "#FFD2B3" }}
+                  thumbColor={newAddOnGroup.required ? "#FF6B00" : "#F4F4F4"}
+                  onValueChange={(value) => setNewAddOnGroup({ ...newAddOnGroup, required: value })}
+                  value={newAddOnGroup.required}
+                />
+              </View>
+
               <TouchableOpacity
-                style={styles.confirmDeleteButton}
-                onPress={handleDeleteItem}
+                style={[
+                  styles.saveButton,
+                  !newAddOnGroup.name && styles.saveButtonDisabled
+                ]}
+                onPress={addAddOnGroup}
+                disabled={!newAddOnGroup.name}
               >
-                <Text style={styles.confirmDeleteButtonText}>Delete</Text>
+                <Text style={styles.saveButtonText}>Add Group</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
+
+      {/* Add On Modal */}
+      <Modal
+        visible={showAddOnModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAddOnModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.smallModalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Customization Option</Text>
+              <TouchableOpacity onPress={() => setShowAddOnModal(false)}>
+                <X size={24} color="#1F2937" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.formContainer}>
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Option Name *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newAddOn.name}
+                  onChangeText={(text) => setNewAddOn({ ...newAddOn, name: text })}
+                  placeholder="e.g., Extra Cheese, Without Onion"
+                />
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Default Option (No Extra Charge)</Text>
+                <Switch
+                  trackColor={{ false: "#CCCCCC", true: "#FFD2B3" }}
+                  thumbColor={newAddOn.isDefault ? "#FF6B00" : "#F4F4F4"}
+                  onValueChange={(value) => setNewAddOn({ ...newAddOn, isDefault: value, price: value ? '' : newAddOn.price })}
+                  value={newAddOn.isDefault}
+                />
+              </View>
+
+              {!newAddOn.isDefault && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Additional Price ($) *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newAddOn.price}
+                    onChangeText={(text) => {
+                      const filtered = text.replace(/[^0-9.]/g, '');
+                      setNewAddOn({ ...newAddOn, price: filtered });
+                    }}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              )}
+
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Available</Text>
+                <Switch
+                  trackColor={{ false: "#CCCCCC", true: "#FFD2B3" }}
+                  thumbColor={newAddOn.available ? "#FF6B00" : "#F4F4F4"}
+                  onValueChange={(value) => setNewAddOn({ ...newAddOn, available: value })}
+                  value={newAddOn.available}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  (!newAddOn.name || (!newAddOn.isDefault && !newAddOn.price)) && styles.saveButtonDisabled
+                ]}
+                onPress={addAddOn}
+                disabled={!newAddOn.name || (!newAddOn.isDefault && !newAddOn.price)}
+              >
+                <Text style={styles.saveButtonText}>Add Option</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Item Modal (similar to Add Modal but with existing data) */}
+      {/* Delete Confirmation Modal */}
+      {/* ... (keep your existing modals) ... */}
     </View>
   );
 };
@@ -1648,6 +1892,18 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
+  smallModalContent: {
+    width: '90%',
+    maxHeight: '60%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1692,23 +1948,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
   },
-  // dropdownMenu: {
-  //   position: 'absolute',
-  //   top: 75,
-  //   left: 0,
-  //   right: 0,
-  //   backgroundColor: '#FFFFFF',
-  //   borderRadius: 8,
-  //   borderWidth: 1,
-  //   borderColor: '#EEEEEE',
-  //   zIndex: 1000,
-  //   elevation: 5,
-  // },
-  dropdownItem: {
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-  },
   dropdownMenuContainer: {
     position: 'absolute',
     top: 75,
@@ -1716,7 +1955,7 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 1000,
     elevation: 5,
-    maxHeight: 200, // Set a specific maximum height
+    maxHeight: 200,
   },
   dropdownMenu: {
     backgroundColor: '#FFFFFF',
@@ -1724,6 +1963,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EEEEEE',
     maxHeight: 200,
+  },
+  dropdownItem: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
   },
   imageUploadContainer: {
     height: 120,
@@ -1774,6 +2018,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     marginTop: 20,
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#CCCCCC',
   },
   saveButtonText: {
     color: '#FFFFFF',
@@ -1872,7 +2119,6 @@ const styles = StyleSheet.create({
     color: '#FF6B00',
     marginLeft: 8,
   },
-  // New styles for size variations
   sizeVariationsContainer: {
     marginBottom: 10,
   },
@@ -1884,6 +2130,12 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 4,
     marginBottom: 5,
+  },
+  sizeVariationInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   sizeVariationText: {
     fontSize: 14,
@@ -1913,7 +2165,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     padding: 8,
   },
-  // With this:
   sizeDropdownMenu: {
     backgroundColor: '#FFFFFF',
     borderRadius: 4,
@@ -1925,6 +2176,9 @@ const styles = StyleSheet.create({
     padding: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
+  },
+  sizeDropdownText: {
+    fontSize: 14,
   },
   priceInputContainer: {
     flex: 1,
@@ -1945,7 +2199,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginTop: 16,
   },
-  // Add these to your StyleSheet
   uploadedImageContainer: {
     width: '100%',
     height: '100%',
@@ -1976,6 +2229,158 @@ const styles = StyleSheet.create({
   uploadingText: {
     color: '#666666',
     marginTop: 10,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+  },
+  segmentedButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  segmentedButtonActive: {
+    backgroundColor: '#FF6B0010',
+  },
+  segmentedButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+    marginLeft: 6,
+  },
+  segmentedButtonTextActive: {
+    color: '#FF6B00',
+  },
+  segmentedCheckIcon: {
+    marginRight: 6,
+  },
+  warningText: {
+    color: '#EF4444',
+    fontSize: 12,
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: '#333333',
+    paddingVertical: 2
+  },
+  // Add-ons specific styles
+  addOnsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  toggleSwitchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  toggleSwitchText: {
+    marginRight: 8,
+    fontSize: 14,
+    color: '#666666',
+  },
+  addOnGroupContainer: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  addOnGroupHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  addOnGroupName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  addOnGroupActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  addOnGroupActionButton: {
+    marginLeft: 10,
+  },
+  requiredText: {
+    fontSize: 12,
+    color: '#666666',
+  },
+  requiredTextActive: {
+    color: '#FF6B00',
+    fontWeight: 'bold',
+  },
+  addOnGroupSelectionText: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+  addOnsList: {
+    marginTop: 8,
+  },
+  addOnItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 6,
+  },
+  addOnInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  addOnName: {
+    marginLeft: 8,
+    fontSize: 14,
+  },
+  addOnPrice: {
+    fontSize: 14,
+    color: '#FF6B00',
+    marginRight: 8,
+  },
+  removeAddOnButton: {
+    padding: 4,
+  },
+  addAddOnGroupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFE0CC',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  addAddOnGroupButtonText: {
+    color: '#FF6B00',
+    marginLeft: 8,
+    fontWeight: 'bold',
+  },
+  numberInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+  },
+  numberInputButton: {
+    padding: 8,
+  },
+  numberInputText: {
+    fontSize: 14,
+    marginHorizontal: 10,
   },
 });
 

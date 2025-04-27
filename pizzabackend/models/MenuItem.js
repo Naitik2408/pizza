@@ -27,7 +27,7 @@ const menuItemSchema = mongoose.Schema(
       type: String,
       required: true,
     },
-    // Base price (for backward compatibility)
+    // Base price (for single size items or display purposes)
     price: {
       type: Number,
       required: true,
@@ -72,22 +72,28 @@ const menuItemSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    rating: {
-      type: Number,
-      min: 0,
-      max: 5,
-      default: 0,
+    // Explicit field to track size type (single or multiple)
+    sizeType: {
+      type: String,
+      enum: ['single', 'multiple'],
+      default: 'single'
     },
-    // Original size field (for backward compatibility)
+    // Original size field (used for single-size items)
     size: {
       type: String,
       enum: ['Small', 'Medium', 'Large', 'Not Applicable'],
       default: 'Medium',
     },
-    // New field for multiple sizes with different prices
+    // Array of size variations for multiple-size items
     sizeVariations: {
       type: [sizeVariationSchema],
       default: [],
+    },
+    rating: {
+      type: Number,
+      min: 0,
+      max: 5,
+      default: 0,
     },
     ratingCount: {
       type: Number,
@@ -97,15 +103,39 @@ const menuItemSchema = mongoose.Schema(
     hasMultipleSizes: {
       type: Boolean,
       default: false
+    },
+    // Field for customizations (if needed in future)
+    customizations: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
     }
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    // Enable virtuals when converting to JSON
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
 
-// Pre-save hook to update hasMultipleSizes flag
+// Pre-save hook to ensure data consistency
 menuItemSchema.pre('save', function(next) {
-  // Set hasMultipleSizes based on whether sizeVariations array has items
-  this.hasMultipleSizes = this.sizeVariations && this.sizeVariations.length > 0;
+  // Set hasMultipleSizes based on sizeType
+  this.hasMultipleSizes = this.sizeType === 'multiple';
+  
+  // If this is single size, clear any size variations to avoid confusion
+  if (this.sizeType === 'single') {
+    this.sizeVariations = [];
+  }
+  
+  // If multiple size but no variations, add a default one
+  if (this.sizeType === 'multiple' && (!this.sizeVariations || this.sizeVariations.length === 0)) {
+    this.sizeVariations = [{
+      size: this.size || 'Medium',
+      price: this.price,
+      available: this.available
+    }];
+  }
   
   // Keep isVeg in sync with foodType
   this.isVeg = this.foodType === 'Veg';
@@ -113,9 +143,66 @@ menuItemSchema.pre('save', function(next) {
   next();
 });
 
+// Hook to run before findOneAndUpdate to handle sizeType changes
+menuItemSchema.pre('findOneAndUpdate', function(next) {
+  const update = this.getUpdate();
+  
+  // If changing to single size, clear size variations
+  if (update.sizeType === 'single') {
+    update.sizeVariations = [];
+    update.hasMultipleSizes = false;
+  }
+  
+  // If changing to multiple size, ensure hasMultipleSizes is true
+  if (update.sizeType === 'multiple') {
+    update.hasMultipleSizes = true;
+  }
+  
+  // Keep isVeg in sync with foodType
+  if (update.foodType) {
+    update.isVeg = update.foodType === 'Veg';
+  }
+  
+  next();
+});
+
+// Virtual getter for base price based on size type
+menuItemSchema.virtual('basePrice').get(function() {
+  if (this.sizeType === 'single') {
+    return this.price;
+  } else if (this.sizeVariations && this.sizeVariations.length > 0) {
+    // For multiple-size items, use the smallest size as base price
+    // or just the first size if sorting isn't necessary
+    return this.sizeVariations[0].price;
+  }
+  return this.price; // Fallback
+});
+
 // Virtual getter for backward compatibility
 menuItemSchema.virtual('isVegItem').get(function() {
   return this.foodType === 'Veg';
+});
+
+// Virtual getter to get the default size
+menuItemSchema.virtual('defaultSize').get(function() {
+  if (this.sizeType === 'single') {
+    return this.size;
+  } else if (this.sizeVariations && this.sizeVariations.length > 0) {
+    return this.sizeVariations[0].size;
+  }
+  return 'Medium'; // Fallback
+});
+
+// Virtual for available sizes (useful for frontend)
+menuItemSchema.virtual('availableSizes').get(function() {
+  if (this.sizeType === 'single') {
+    return [this.size];
+  } else if (this.sizeVariations && this.sizeVariations.length > 0) {
+    return this.sizeVariations
+      .filter(v => v.available)
+      .map(v => v.size);
+  }
+  return [];
 });
 
 module.exports = mongoose.model('MenuItem', menuItemSchema);
