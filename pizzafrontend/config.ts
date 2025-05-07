@@ -1,5 +1,5 @@
 // Base API URL - update this to match your backend server address
-export const API_URL = 'http://192.168.98.48:5000'; // Example local development server IP
+export const API_URL = 'http://192.168.243.48:5000'; // Example local development server IP
 
 // For easier switching between environments
 export const ENVIRONMENTS = {
