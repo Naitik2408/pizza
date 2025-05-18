@@ -9,48 +9,140 @@ const generateToken = (id) => {
 
 // Register user
 const registerUser = async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { 
+    name, 
+    email, 
+    password, 
+    role,
+    // Delivery partner specific fields
+    vehicleType,
+    aadharCard,
+    drivingLicense
+  } = req.body;
 
   try {
+    // Check if user already exists
     const userExists = await User.findOne({ email });
-    if (userExists) return res.status(400).json({ message: 'User already exists' });
+    if (userExists) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
 
-    const user = await User.create({ name, email, password, role });
+    // Create user data object
+    const userData = {
+      name,
+      email,
+      password,
+      role: role || 'customer'
+    };
+
+    // If registering as a delivery partner, add the delivery details
+    if (role === 'delivery') {
+      // Validate required delivery partner fields
+      if (!vehicleType) {
+        return res.status(400).json({ message: 'Vehicle type is required for delivery partners' });
+      }
+      
+      if (!aadharCard) {
+        return res.status(400).json({ message: 'Aadhar Card document is required for delivery partners' });
+      }
+      
+      if (!drivingLicense) {
+        return res.status(400).json({ message: 'Driving License document is required for delivery partners' });
+      }
+
+      // Add delivery details
+      userData.deliveryDetails = {
+        vehicleType,
+        aadharCard,
+        drivingLicense,
+        isVerified: false,
+        status: 'pending',
+        isOnline: false
+      };
+    }
+
+    // Create the user
+    const user = await User.create(userData);
+
     if (user) {
-      res.status(201).json({
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user.id),
-      });
+      // Different response based on user role
+      if (role === 'delivery') {
+        res.status(201).json({
+          message: 'Delivery partner application submitted successfully. We will review your documents and contact you soon.',
+          status: 'pending',
+          _id: user.id
+        });
+      } else {
+        // Regular customer registration response
+        res.status(201).json({
+          _id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          token: generateToken(user.id),
+        });
+      }
     } else {
       res.status(400).json({ message: 'Invalid user data' });
     }
   } catch (error) {
+    console.error('Registration error:', error);
     res.status(500).json({ message: error.message });
   }
 };
 
-// Login user
+// Login user with delivery partner status check
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
-  
   try {
     const user = await User.findOne({ email });
-    if (user && (await user.matchPassword(password))) {
-      res.json({
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user.id),
-      });
-    } else {
-      res.status(401).json({ message: 'Invalid email or password' });
+    
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
+
+    // Check if password matches
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // For delivery partners, check application status
+    if (user.role === 'delivery') {
+      // Check application status
+      if (user.deliveryDetails.status === 'pending') {
+        return res.status(403).json({ 
+          message: 'Your application is under review. Please check back later.',
+          status: 'pending'
+        });
+      }
+      
+      if (user.deliveryDetails.status === 'rejected') {
+        return res.status(403).json({ 
+          message: 'Your application was not approved. Please contact support for more information.',
+          status: 'rejected',
+          reason: user.deliveryDetails.verificationNotes
+        });
+      }
+    }
+
+    // Login successful
+    res.json({
+      _id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      ...(user.role === 'delivery' && { 
+        deliveryDetails: {
+          vehicleType: user.deliveryDetails.vehicleType,
+          isOnline: user.deliveryDetails.isOnline
+        }
+      }),
+      token: generateToken(user.id),
+    });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -58,6 +150,15 @@ const loginUser = async (req, res) => {
 // Logout user
 const logoutUser = async (req, res) => {
   try {
+    // If delivery partner, set their status to offline when logging out
+    if (req.user && req.user.role === 'delivery') {
+      const user = await User.findById(req.user.id);
+      if (user && user.deliveryDetails && user.deliveryDetails.isOnline) {
+        user.deliveryDetails.isOnline = false;
+        await user.save();
+      }
+    }
+    
     // Invalidate the token (optional: implement token blacklist logic here)
     res.status(200).json({ message: 'User logged out successfully' });
   } catch (error) {
@@ -65,21 +166,104 @@ const logoutUser = async (req, res) => {
   }
 };
 
-// Get user profile
+// Get user profile with delivery details if applicable
 const getUserProfile = async (req, res) => {
-  const user = await User.findById(req.user.id);
-  if (user) {
-    res.json({
-      _id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    });
-  } else {
-    res.status(404).json({ message: 'User not found' });
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Return appropriate data based on role
+    if (user.role === 'delivery') {
+      res.json({
+        _id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        deliveryDetails: {
+          vehicleType: user.deliveryDetails.vehicleType,
+          status: user.deliveryDetails.status,
+          isVerified: user.deliveryDetails.isVerified,
+          isOnline: user.deliveryDetails.isOnline
+        }
+      });
+    } else {
+      res.json({
+        _id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 
+// Get delivery partner application status
+const getDeliveryPartnerStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (user.role !== 'delivery') {
+      return res.status(400).json({ message: 'Not a delivery partner account' });
+    }
+    
+    res.json({
+      status: user.deliveryDetails.status,
+      isVerified: user.deliveryDetails.isVerified,
+      verificationNotes: user.deliveryDetails.verificationNotes,
+      vehicleType: user.deliveryDetails.vehicleType,
+      isOnline: user.deliveryDetails.isOnline
+    });
+  } catch (error) {
+    console.error('Status retrieval error:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Toggle delivery partner online status
+const toggleDeliveryStatus = async (req, res) => {
+  try {
+    const { isOnline } = req.body;
+    
+    if (typeof isOnline !== 'boolean') {
+      return res.status(400).json({ message: 'Invalid status value. Must be true or false.' });
+    }
+    
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (user.role !== 'delivery') {
+      return res.status(400).json({ message: 'Only delivery partners can update online status' });
+    }
+    
+    // Check if delivery partner is approved
+    if (user.deliveryDetails.status !== 'approved') {
+      return res.status(403).json({ message: 'You must be an approved delivery partner to go online' });
+    }
+    
+    // Update online status
+    user.deliveryDetails.isOnline = isOnline;
+    await user.save();
+    
+    return res.status(200).json({
+      message: `Status updated. You are now ${isOnline ? 'online' : 'offline'}.`,
+      isOnline
+    });
+  } catch (error) {
+    console.error('Toggle status error:', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
 
 // Get all addresses for a user
 const getUserAddresses = async (req, res) => {
@@ -288,5 +472,7 @@ module.exports = {
   updateUserAddress,
   deleteUserAddress,
   setDefaultAddress,
-  createGuestToken
+  createGuestToken,
+  getDeliveryPartnerStatus,
+  toggleDeliveryStatus
 };

@@ -9,7 +9,9 @@ const {
   updateUserAddress,
   deleteUserAddress,
   setDefaultAddress,
-  createGuestToken
+  createGuestToken,
+  getDeliveryPartnerStatus,
+  toggleDeliveryStatus
 } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 const router = express.Router();
@@ -19,8 +21,7 @@ router.post('/register', registerUser);
 router.post('/login', loginUser);
 router.get('/profile', protect, getUserProfile);
 router.post('/logout', protect, logoutUser);
-router.post('/guest-token', createGuestToken); // Add this new route
-
+router.post('/guest-token', createGuestToken);
 
 // Address routes
 router.get('/addresses', protect, getUserAddresses);
@@ -28,5 +29,9 @@ router.post('/addresses', protect, addUserAddress);
 router.put('/addresses/:addressId', protect, updateUserAddress);
 router.delete('/addresses/:addressId', protect, deleteUserAddress);
 router.put('/addresses/:addressId/default', protect, setDefaultAddress);
+
+// Delivery partner routes
+router.get('/delivery/status', protect, getDeliveryPartnerStatus);
+router.put('/delivery/status/toggle', protect, toggleDeliveryStatus);
 
 module.exports = router;

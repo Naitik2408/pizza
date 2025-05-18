@@ -37,6 +37,44 @@ const addressSchema = new mongoose.Schema({
   }
 }, { _id: true });
 
+// Create delivery partner schema for delivery-specific information
+const deliveryPartnerSchema = new mongoose.Schema({
+  vehicleType: {
+    type: String,
+    enum: ['bike', 'scooter', 'bicycle', 'car', 'other'],
+    required: true
+  },
+  aadharCard: {
+    type: String,
+    required: true
+  },
+  drivingLicense: {
+    type: String,
+    required: true
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  verificationNotes: {
+    type: String,
+    default: ''
+  },
+  isOnline: {
+    type: Boolean,
+    default: false
+  },
+  lastActiveTime: {
+    type: Date,
+    default: null
+  }
+}, { _id: false });
+
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -57,6 +95,16 @@ const userSchema = new mongoose.Schema({
     default: 'customer',
   },
   addresses: [addressSchema], // Add addresses array
+  deliveryDetails: {
+    type: deliveryPartnerSchema,
+    required: function() {
+      return this.role === 'delivery';
+    }
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
 }, { timestamps: true });
 
 // Hash password before saving
@@ -64,6 +112,18 @@ userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+// Update lastActiveTime when delivery partner goes online
+userSchema.pre('save', function(next) {
+  if (
+    this.isModified('deliveryDetails.isOnline') && 
+    this.deliveryDetails && 
+    this.deliveryDetails.isOnline
+  ) {
+    this.deliveryDetails.lastActiveTime = new Date();
+  }
   next();
 });
 
