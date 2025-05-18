@@ -17,6 +17,79 @@ const sizeVariationSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+// Define a schema for size-specific pricing in add-ons
+const sizePricingSchema = new mongoose.Schema({
+  size: {
+    type: String,
+    enum: ['Small', 'Medium', 'Large', 'Not Applicable'],
+    required: true
+  },
+  price: {
+    type: Number,
+    required: true
+  }
+}, { _id: false });
+
+// Define a schema for add-ons
+const addOnSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true
+  },
+  name: {
+    type: String,
+    required: true
+  },
+  price: {
+    type: Number,
+    default: 0
+  },
+  available: {
+    type: Boolean,
+    default: true
+  },
+  isDefault: {
+    type: Boolean,
+    default: false
+  },
+  hasSizeSpecificPricing: {
+    type: Boolean,
+    default: false
+  },
+  sizePricing: {
+    type: [sizePricingSchema],
+    default: []
+  }
+}, { _id: false });
+
+// Define a schema for add-on groups
+const addOnGroupSchema = new mongoose.Schema({
+  id: {
+    type: String,
+    required: true
+  },
+  name: {
+    type: String,
+    required: true
+  },
+  minSelection: {
+    type: Number,
+    default: 0
+  },
+  maxSelection: {
+    type: Number,
+    default: 1
+  },
+  required: {
+    type: Boolean,
+    default: false
+  },
+  addOns: {
+    type: [addOnSchema],
+    default: []
+  }
+}, { _id: false });
+
 const menuItemSchema = mongoose.Schema(
   {
     name: {
@@ -104,10 +177,14 @@ const menuItemSchema = mongoose.Schema(
       type: Boolean,
       default: false
     },
-    // Field for customizations (if needed in future)
-    customizations: {
-      type: mongoose.Schema.Types.Mixed,
-      default: null
+    // Add customization fields
+    hasAddOns: {
+      type: Boolean,
+      default: false
+    },
+    addOnGroups: {
+      type: [addOnGroupSchema],
+      default: []
     }
   },
   { 

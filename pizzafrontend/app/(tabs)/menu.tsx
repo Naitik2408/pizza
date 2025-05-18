@@ -12,17 +12,47 @@ import {
   Modal,
   ScrollView,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Switch
 } from 'react-native';
 import { AntDesign, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { API_URL } from '@/config';
 
+// SizePricing interface for add-ons with size-specific pricing
+interface SizePricing {
+  size: string;
+  price: number;
+}
+
+// AddOn interface to match our backend model
+interface AddOn {
+  id: string;
+  name: string;
+  price: number;
+  available: boolean;
+  isDefault: boolean;
+  hasSizeSpecificPricing?: boolean;
+  sizePricing?: SizePricing[];
+}
+
+// AddOnGroup interface to match our backend model
+interface AddOnGroup {
+  id: string;
+  name: string;
+  minSelection: number;
+  maxSelection: number;
+  required: boolean;
+  addOns: AddOn[];
+}
+
+// Legacy support for existing CustomizationOption interface
 interface CustomizationOption {
   name: string;
   price: number;
 }
 
+// Legacy support for existing Customization interface
 interface Customization {
   name: string;
   options: CustomizationOption[];
@@ -34,6 +64,7 @@ interface SizeVariation {
   available: boolean;
 }
 
+// Updated MenuItem interface to support new customization model
 interface MenuItem {
   _id: string;
   name: string;
@@ -46,7 +77,11 @@ interface MenuItem {
   popular: boolean;
   rating: number;
   available: boolean;
+  // Legacy customizations field
   customizations?: Customization[];
+  // New customization fields
+  hasAddOns?: boolean;
+  addOnGroups?: AddOnGroup[];
   size?: string;
   sizeVariations?: SizeVariation[];
   hasMultipleSizes?: boolean;
@@ -56,6 +91,20 @@ interface Category {
   id: number;
   name: string;
   icon: string;
+}
+
+// Selected add-on tracking interface
+interface SelectedAddOn {
+  id: string;
+  name: string;
+  price: number;
+  hasSizeSpecificPricing?: boolean;
+  sizePricing?: SizePricing[];
+}
+
+// Interface to track selected add-ons by group
+interface SelectedAddOnsByGroup {
+  [groupId: string]: SelectedAddOn[];
 }
 
 const CATEGORIES = [
@@ -93,9 +142,16 @@ const MenuScreen = () => {
   const [selectedItemDetail, setSelectedItemDetail] = useState<MenuItem | null>(null);
   const [selectedSize, setSelectedSize] = useState<string>('Medium');
   const [quantity, setQuantity] = useState(1);
+  
+  // Legacy customizations state
   const [selectedCustomizations, setSelectedCustomizations] = useState<Record<string, CustomizationOption>>({});
+  
+  // New add-on customizations state
+  const [selectedAddOns, setSelectedAddOns] = useState<SelectedAddOnsByGroup>({});
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<{[groupId: string]: string}>({});
 
   const dispatch = useDispatch();
   const cartItemCount = useSelector(selectCartItemCount);
@@ -171,49 +227,336 @@ const MenuScreen = () => {
     setFilteredItems(result);
   }, [activeCategory, searchQuery, vegOnly, sortBy, menuItems]);
 
-  // Then update openItemDetail to use the cartItems from the component scope
+  // Initialize add-ons when opening item detail modal
   const openItemDetail = (item: MenuItem) => {
     setSelectedItemDetail(item);
+    setValidationErrors({});
 
-    // Set default size
-    let initialSize = 'Medium';
-    if (item.sizeVariations && item.sizeVariations.length > 0) {
-      initialSize = item.sizeVariations.find(v => v.available)?.size || item.sizeVariations[0].size;
-    } else {
-      initialSize = item.size || 'Medium';
-    }
-    setSelectedSize(initialSize);
-
-    // Setup initial customizations
-    const initialCustomizations: Record<string, CustomizationOption> = {};
-    if (item.customizations) {
-      item.customizations.forEach(customization => {
-        if (customization.options.length > 0) {
-          initialCustomizations[customization.name] = customization.options[0];
+    // Check if this item is already in the cart
+    const cartItemsForThisProduct = cartItems.filter(cartItem => cartItem.id === item._id);
+    
+    // If we have at least one of this item in the cart, use the most recent configuration
+    if (cartItemsForThisProduct.length > 0) {
+      // Sort by most recently added (assuming cartItems are ordered by addition time)
+      // If you don't have a timestamp, this will just use the last one in the array
+      const mostRecentCartItem = cartItemsForThisProduct[cartItemsForThisProduct.length - 1];
+      
+      // Set size from cart item
+      setSelectedSize(mostRecentCartItem.size || 'Medium');
+      
+      // Set quantity from cart item
+      setQuantity(mostRecentCartItem.quantity);
+      
+      // Set legacy customizations from cart item
+      if (mostRecentCartItem.customizations) {
+        setSelectedCustomizations(mostRecentCartItem.customizations);
+      } else {
+        // Initialize with default customizations if not in cart
+        const initialCustomizations: Record<string, CustomizationOption> = {};
+        if (item.customizations) {
+          item.customizations.forEach(customization => {
+            if (customization.options.length > 0) {
+              initialCustomizations[customization.name] = customization.options[0];
+            }
+          });
         }
-      });
+        setSelectedCustomizations(initialCustomizations);
+      }
+      
+      // Set add-ons from cart item
+      if (mostRecentCartItem.addOns && mostRecentCartItem.addOns.length > 0) {
+        // Convert the flat list of add-ons back to grouped structure
+        const groupedAddOns: SelectedAddOnsByGroup = {};
+        
+        if (item.addOnGroups) {
+          // Initialize empty groups
+          item.addOnGroups.forEach(group => {
+            groupedAddOns[group.id] = [];
+          });
+          
+          // Populate groups with add-ons from cart
+          mostRecentCartItem.addOns.forEach(cartAddOn => {
+            // Find which group this add-on belongs to
+            item.addOnGroups?.forEach(group => {
+              const addOnExistsInGroup = group.addOns.some(groupAddOn => 
+                groupAddOn.id === cartAddOn.id
+              );
+              
+              if (addOnExistsInGroup) {
+                if (!groupedAddOns[group.id]) {
+                  groupedAddOns[group.id] = [];
+                }
+                groupedAddOns[group.id].push(cartAddOn);
+              }
+            });
+          });
+        }
+        
+        setSelectedAddOns(groupedAddOns);
+      } else {
+        // Initialize with default add-ons if not in cart
+        const initialSelectedAddOns: SelectedAddOnsByGroup = {};
+        
+        if (item.hasAddOns && item.addOnGroups) {
+          item.addOnGroups.forEach(group => {
+            // For each group, select default options or required minimums
+            const defaultAddOns = group.addOns
+              .filter(addOn => addOn.isDefault && addOn.available)
+              .map(addOn => ({
+                id: addOn.id,
+                name: addOn.name,
+                price: getAddOnPrice(addOn, mostRecentCartItem.size || 'Medium'),
+                hasSizeSpecificPricing: addOn.hasSizeSpecificPricing,
+                sizePricing: addOn.sizePricing
+              }));
+              
+            if (defaultAddOns.length > 0) {
+              initialSelectedAddOns[group.id] = defaultAddOns;
+            } else if (group.required && group.minSelection > 0) {
+              // If required with min selection, select the first available option
+              const availableAddOns = group.addOns.filter(addOn => addOn.available);
+              if (availableAddOns.length > 0) {
+                initialSelectedAddOns[group.id] = [{
+                  id: availableAddOns[0].id,
+                  name: availableAddOns[0].name,
+                  price: getAddOnPrice(availableAddOns[0], mostRecentCartItem.size || 'Medium'),
+                  hasSizeSpecificPricing: availableAddOns[0].hasSizeSpecificPricing,
+                  sizePricing: availableAddOns[0].sizePricing
+                }];
+              }
+            } else {
+              initialSelectedAddOns[group.id] = [];
+            }
+          });
+        }
+        
+        setSelectedAddOns(initialSelectedAddOns);
+      }
+    } else {
+      // If item is not in cart, initialize with defaults
+      
+      // Set default size
+      let initialSize = 'Medium';
+      if (item.sizeVariations && item.sizeVariations.length > 0) {
+        initialSize = item.sizeVariations.find(v => v.available)?.size || item.sizeVariations[0].size;
+      } else {
+        initialSize = item.size || 'Medium';
+      }
+      setSelectedSize(initialSize);
+      
+      // Reset quantity
+      setQuantity(1);
+      
+      // Setup initial customizations (legacy support)
+      const initialCustomizations: Record<string, CustomizationOption> = {};
+      if (item.customizations) {
+        item.customizations.forEach(customization => {
+          if (customization.options.length > 0) {
+            initialCustomizations[customization.name] = customization.options[0];
+          }
+        });
+      }
+      setSelectedCustomizations(initialCustomizations);
+      
+      // Initialize selected add-ons with default selections
+      const initialSelectedAddOns: SelectedAddOnsByGroup = {};
+      
+      if (item.hasAddOns && item.addOnGroups) {
+        item.addOnGroups.forEach(group => {
+          // For each group, select default options or required minimums
+          const defaultAddOns = group.addOns
+            .filter(addOn => addOn.isDefault && addOn.available)
+            .map(addOn => ({
+              id: addOn.id,
+              name: addOn.name,
+              price: getAddOnPrice(addOn, initialSize),
+              hasSizeSpecificPricing: addOn.hasSizeSpecificPricing,
+              sizePricing: addOn.sizePricing
+            }));
+            
+          if (defaultAddOns.length > 0) {
+            initialSelectedAddOns[group.id] = defaultAddOns;
+          } else if (group.required && group.minSelection > 0) {
+            // If required with min selection, select the first available option
+            const availableAddOns = group.addOns.filter(addOn => addOn.available);
+            if (availableAddOns.length > 0) {
+              initialSelectedAddOns[group.id] = [{
+                id: availableAddOns[0].id,
+                name: availableAddOns[0].name,
+                price: getAddOnPrice(availableAddOns[0], initialSize),
+                hasSizeSpecificPricing: availableAddOns[0].hasSizeSpecificPricing,
+                sizePricing: availableAddOns[0].sizePricing
+              }];
+            }
+          } else {
+            initialSelectedAddOns[group.id] = [];
+          }
+        });
+      }
+      
+      setSelectedAddOns(initialSelectedAddOns);
     }
-    setSelectedCustomizations(initialCustomizations);
-
-    // Check if this exact item configuration is already in the cart
-    const existingItem = cartItems.find(cartItem =>
-      cartItem.id === item._id &&
-      cartItem.size === initialSize &&
-      // To avoid deep comparison issues, we'll just check ID and size
-      cartItem.size === initialSize
-    );
-
-    // Set quantity to existing quantity or 1 if not in cart
-    setQuantity(existingItem ? existingItem.quantity : 1);
   };
 
   const closeItemDetail = () => {
     setSelectedItemDetail(null);
+    setSelectedAddOns({});
+    setValidationErrors({});
   };
   
+  // Helper to get the correct price for an add-on based on size
+  const getAddOnPrice = (addOn: AddOn, size: string): number => {
+    if (addOn.hasSizeSpecificPricing && addOn.sizePricing && addOn.sizePricing.length > 0) {
+      const sizePrice = addOn.sizePricing.find(sp => sp.size === size);
+      if (sizePrice) {
+        return sizePrice.price;
+      }
+    }
+    return addOn.price;
+  };
+
+  // Toggle selection for an add-on in a group
+  const toggleAddOn = (groupId: string, addOn: AddOn) => {
+    const group = selectedItemDetail?.addOnGroups?.find(g => g.id === groupId);
+    if (!group) return;
+
+    setSelectedAddOns(prevSelected => {
+      // Get currently selected add-ons for this group
+      const currentSelections = prevSelected[groupId] || [];
+      
+      // Check if this add-on is already selected
+      const isSelected = currentSelections.some(item => item.id === addOn.id);
+      
+      let updatedSelections;
+      
+      if (isSelected) {
+        // If it's already selected, remove it (unless it would violate min selection)
+        if (group.required && currentSelections.length <= group.minSelection) {
+          // Don't remove if it would violate the min selection requirement
+          setValidationErrors(prev => ({
+            ...prev,
+            [groupId]: `You must select at least ${group.minSelection} option(s)`
+          }));
+          return prevSelected;
+        }
+        
+        // Remove the add-on
+        updatedSelections = currentSelections.filter(item => item.id !== addOn.id);
+        
+        // Clear any validation error for this group
+        setValidationErrors(prev => {
+          const newErrors = {...prev};
+          delete newErrors[groupId];
+          return newErrors;
+        });
+      } else {
+        // If not selected, add it (unless it would exceed max selection)
+        if (currentSelections.length >= group.maxSelection) {
+          // Multiple selection groups: replace or show error
+          if (group.maxSelection === 1) {
+            // For single-selection groups, replace the current selection
+            updatedSelections = [{
+              id: addOn.id,
+              name: addOn.name,
+              price: getAddOnPrice(addOn, selectedSize),
+              hasSizeSpecificPricing: addOn.hasSizeSpecificPricing,
+              sizePricing: addOn.sizePricing
+            }];
+          } else {
+            // For multiple selection groups, show an error
+            setValidationErrors(prev => ({
+              ...prev,
+              [groupId]: `You can only select up to ${group.maxSelection} option(s)`
+            }));
+            return prevSelected;
+          }
+        } else {
+          // Add the new selection
+          updatedSelections = [
+            ...currentSelections,
+            {
+              id: addOn.id,
+              name: addOn.name,
+              price: getAddOnPrice(addOn, selectedSize),
+              hasSizeSpecificPricing: addOn.hasSizeSpecificPricing,
+              sizePricing: addOn.sizePricing
+            }
+          ];
+        }
+        
+        // Clear any validation error for this group
+        setValidationErrors(prev => {
+          const newErrors = {...prev};
+          delete newErrors[groupId];
+          return newErrors;
+        });
+      }
+      
+      return {
+        ...prevSelected,
+        [groupId]: updatedSelections
+      };
+    });
+  };
+
+  // Update add-on prices when size changes
+  useEffect(() => {
+    if (!selectedItemDetail?.addOnGroups || !selectedSize) return;
+    
+    setSelectedAddOns(prevSelected => {
+      const updatedSelections: SelectedAddOnsByGroup = {};
+      
+      // For each group
+      Object.keys(prevSelected).forEach(groupId => {
+        const group = selectedItemDetail.addOnGroups?.find(g => g.id === groupId);
+        if (!group) return;
+        
+        // For each selected add-on in the group
+        updatedSelections[groupId] = prevSelected[groupId].map(selectedAddOn => {
+          // Find the original add-on to get access to its pricing data
+          const originalAddOn = group.addOns.find(addOn => addOn.id === selectedAddOn.id);
+          
+          if (originalAddOn) {
+            return {
+              ...selectedAddOn,
+              price: getAddOnPrice(originalAddOn, selectedSize)
+            };
+          }
+          return selectedAddOn;
+        });
+      });
+      
+      return updatedSelections;
+    });
+  }, [selectedSize, selectedItemDetail]);
+
+  // Validate selections before adding to cart
+  const validateSelections = (): boolean => {
+    if (!selectedItemDetail?.addOnGroups) return true;
+    
+    let isValid = true;
+    const errors: {[groupId: string]: string} = {};
+    
+    selectedItemDetail.addOnGroups.forEach(group => {
+      const selected = selectedAddOns[group.id] || [];
+      
+      if (group.required && selected.length < group.minSelection) {
+        errors[group.id] = `Please select at least ${group.minSelection} option(s)`;
+        isValid = false;
+      }
+    });
+    
+    setValidationErrors(errors);
+    return isValid;
+  };
 
   const handleAddToCart = () => {
     if (!selectedItemDetail) return;
+    
+    // Validate customization selections
+    if (!validateSelections()) {
+      return;
+    }
 
     let basePrice = selectedItemDetail.price;
     if (selectedItemDetail.sizeVariations && selectedItemDetail.sizeVariations.length > 0) {
@@ -223,6 +566,9 @@ const MenuScreen = () => {
       }
     }
 
+    // Build add-ons array with selected options
+    const selectedAddOnsArray = Object.values(selectedAddOns).flat();
+
     const cartItem = {
       id: selectedItemDetail._id,
       name: selectedItemDetail.name,
@@ -231,13 +577,16 @@ const MenuScreen = () => {
       quantity: quantity,
       size: selectedSize,
       foodType: selectedItemDetail.foodType,
-      customizations: selectedCustomizations
+      // Include both legacy customizations and new add-ons
+      customizations: selectedCustomizations,
+      addOns: selectedAddOnsArray
     };
 
     dispatch(addToCart(cartItem));
     closeItemDetail();
   };
 
+  // Legacy support for old customization system
   const updateCustomization = (category: string, option: CustomizationOption) => {
     setSelectedCustomizations({
       ...selectedCustomizations,
@@ -248,6 +597,7 @@ const MenuScreen = () => {
   const calculateTotalPrice = () => {
     if (!selectedItemDetail) return 0;
 
+    // Base price based on size
     let basePrice = selectedItemDetail.price;
     if (selectedItemDetail.sizeVariations && selectedItemDetail.sizeVariations.length > 0) {
       const selectedVariation = selectedItemDetail.sizeVariations.find(v => v.size === selectedSize);
@@ -257,8 +607,17 @@ const MenuScreen = () => {
     }
 
     let totalPrice = basePrice;
+    
+    // Add legacy customization prices
     Object.values(selectedCustomizations).forEach(option => {
       totalPrice += option.price;
+    });
+    
+    // Add new add-on prices
+    Object.values(selectedAddOns).forEach(groupAddOns => {
+      groupAddOns.forEach(addOn => {
+        totalPrice += addOn.price;
+      });
     });
 
     return totalPrice * quantity;
@@ -309,7 +668,7 @@ const MenuScreen = () => {
             {item.description}
           </Text>
           <View style={styles.menuItemFooter}>
-            <Text style={styles.menuItemPrice}>${item.price.toFixed(2)}</Text>
+            <Text style={styles.menuItemPrice}>₹{item.price.toFixed(2)}</Text>
             <View style={styles.ratingContainer}>
               <AntDesign name="star" size={14} color="#FF6B00" />
               <Text style={styles.rating}>{item.rating.toFixed(1)}</Text>
@@ -327,6 +686,77 @@ const MenuScreen = () => {
       </TouchableOpacity>
     );
   };
+  
+  // Render an add-on group in the modal
+  const renderAddOnGroup = (group: AddOnGroup) => {
+    const selectedInGroup = selectedAddOns[group.id] || [];
+    const hasError = validationErrors[group.id];
+    
+    return (
+      <View key={group.id} style={styles.customizationSection}>
+        <View style={styles.customizationHeader}>
+          <Text style={styles.customizationTitle}>{group.name}</Text>
+          <Text style={styles.customizationLimits}>
+            {group.required ? 'Required' : 'Optional'} • 
+            {group.minSelection === group.maxSelection 
+              ? ` Select ${group.minSelection}` 
+              : ` Select ${group.minSelection}-${group.maxSelection}`}
+          </Text>
+        </View>
+        
+        {hasError && (
+          <Text style={styles.errorText}>{hasError}</Text>
+        )}
+
+        <View style={styles.customizationOptions}>
+          {group.addOns.filter(addOn => addOn.available).map((addOn) => {
+            const isSelected = selectedInGroup.some(item => item.id === addOn.id);
+            const addOnPrice = getAddOnPrice(addOn, selectedSize);
+            
+            return (
+              <TouchableOpacity
+                key={addOn.id}
+                style={[
+                  styles.customizationOption,
+                  isSelected && styles.selectedCustomizationOption
+                ]}
+                onPress={() => toggleAddOn(group.id, addOn)}
+              >
+                <View style={styles.customizationOptionContent}>
+                  <Text style={[
+                    styles.customizationOptionText,
+                    isSelected && styles.selectedCustomizationOptionText
+                  ]}>
+                    {addOn.name}
+                  </Text>
+                  
+                  {addOn.hasSizeSpecificPricing && addOn.sizePricing ? (
+                    <Text style={styles.customizationPrice}>
+                      {addOnPrice > 0 ? `+₹${addOnPrice.toFixed(2)}` : 'Included'}
+                    </Text>
+                  ) : (
+                    <Text style={styles.customizationPrice}>
+                      {addOnPrice > 0 ? `+₹${addOnPrice.toFixed(2)}` : 'Included'}
+                    </Text>
+                  )}
+                </View>
+                
+                {group.maxSelection === 1 ? (
+                  <View style={[styles.radioButton, isSelected && styles.radioButtonSelected]}>
+                    {isSelected && <View style={styles.radioButtonInner} />}
+                  </View>
+                ) : (
+                  <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
+                    {isSelected && <AntDesign name="check" size={12} color="#FFF" />}
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -336,7 +766,7 @@ const MenuScreen = () => {
         </TouchableOpacity>
         <Text style={styles.title}>Menu</Text>
         <TouchableOpacity
-          onPress={() => router.push('/cart')}
+          onPress={() => router.push('../cart')}
           style={styles.cartIconContainer}
         >
           <AntDesign name="shoppingcart" size={24} color="#1F2937" />
@@ -576,7 +1006,7 @@ const MenuScreen = () => {
                                 selectedSize === variation.size && styles.selectedSizePriceText
                               ]}
                             >
-                              ${variation.price.toFixed(2)}
+                              ₹{variation.price.toFixed(2)}
                             </Text>
                           </TouchableOpacity>
                         ))}
@@ -584,6 +1014,7 @@ const MenuScreen = () => {
                   </View>
                 )}
 
+                {/* Legacy Customizations (if any) */}
                 {selectedItemDetail.customizations?.map((customization, index) => (
                   <View key={index} style={styles.customizationSection}>
                     <Text style={styles.customizationTitle}>{customization.name}</Text>
@@ -605,7 +1036,7 @@ const MenuScreen = () => {
                             styles.selectedCustomizationOptionText
                           ]}>
                             {option.name}
-                            {option.price > 0 && ` (+$${option.price.toFixed(2)})`}
+                            {option.price > 0 && ` (+₹${option.price.toFixed(2)})`}
                           </Text>
                           {selectedCustomizations[customization.name]?.name === option.name && (
                             <AntDesign name="check" size={16} color="#FF6B00" />
@@ -615,6 +1046,16 @@ const MenuScreen = () => {
                     </View>
                   </View>
                 ))}
+
+                {/* New Add-on Customizations */}
+                {selectedItemDetail.hasAddOns && selectedItemDetail.addOnGroups && 
+                  selectedItemDetail.addOnGroups.length > 0 && (
+                    <>
+                      <View style={styles.modalDivider} />
+                      <Text style={styles.customizationSectionTitle}>Customizations</Text>
+                      {selectedItemDetail.addOnGroups.map(group => renderAddOnGroup(group))}
+                    </>
+                )}
 
                 <View style={styles.modalDivider} />
 
@@ -652,7 +1093,7 @@ const MenuScreen = () => {
               >
                 <Text style={styles.addToCartText}>
                   {selectedItemDetail?.available
-                    ? `Add to Cart - $${calculateTotalPrice().toFixed(2)}`
+                    ? `Add to Cart - ₹${calculateTotalPrice().toFixed(2)}`
                     : 'Currently Unavailable'}
                 </Text>
               </TouchableOpacity>
@@ -743,6 +1184,24 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     backgroundColor: '#4CAF50',
     borderColor: '#4CAF50',
+  },
+  radioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#DDD',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioButtonSelected: {
+    borderColor: '#FF6B00',
+  },
+  radioButtonInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF6B00',
   },
   vegFilterText: {
     fontSize: 14,
@@ -1121,27 +1580,54 @@ const styles = StyleSheet.create({
   },
   customizationSection: {
     paddingHorizontal: 20,
-    marginBottom: 15,
+    marginBottom: 20,
+  },
+  customizationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  customizationSectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginLeft: 20,
+    marginBottom: 10,
   },
   customizationTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 10,
+  },
+  customizationLimits: {
+    fontSize: 12,
+    color: '#666666',
+    fontStyle: 'italic',
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#F44336',
+    marginBottom: 8,
   },
   customizationOptions: {
     flexDirection: 'column',
+    marginTop: 8,
   },
   customizationOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 15,
     borderWidth: 1,
     borderColor: '#EEE',
     borderRadius: 8,
     marginBottom: 8,
+  },
+  customizationOptionContent: {
+    flex: 1,
+    flexDirection: 'column',
   },
   selectedCustomizationOption: {
     borderColor: '#FF6B00',
@@ -1149,6 +1635,11 @@ const styles = StyleSheet.create({
   },
   customizationOptionText: {
     fontSize: 14,
+    color: '#333333', 
+    marginBottom: 2,
+  },
+  customizationPrice: {
+    fontSize: 12,
     color: '#666666',
   },
   selectedCustomizationOptionText: {

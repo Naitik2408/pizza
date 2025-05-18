@@ -1,16 +1,16 @@
 import { API_URL } from '../../config';
 
+// Update your Address interface to include the landmark property
 export interface Address {
-  _id?: string;
-  id?: string; // For compatibility with both backend and frontend
-  name: string;
-  phone: string;
+  _id: string;
+  userId: string;
   addressLine1: string;
-  addressLine2?: string;
   city: string;
   state: string;
   zipCode: string;
-  isDefault: boolean;
+  isDefault?: boolean;
+  phone?: string;
+  landmark?: string; // Add this line to include landmark
 }
 
 export const getAddresses = async (token: string): Promise<Address[]> => {

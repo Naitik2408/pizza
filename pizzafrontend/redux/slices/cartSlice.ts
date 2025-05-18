@@ -1,6 +1,21 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { RootState } from '../store';
 
+// SizePricing interface for add-ons with size-specific pricing
+interface SizePricing {
+  size: string;
+  price: number;
+}
+
+// Selected add-on interface
+interface SelectedAddOn {
+  id: string;
+  name: string;
+  price: number;
+  hasSizeSpecificPricing?: boolean;
+  sizePricing?: SizePricing[];
+}
+
 // Define types
 export interface CartItem {
   id: string;
@@ -10,7 +25,10 @@ export interface CartItem {
   quantity: number;
   size: string;
   foodType: string;
+  // Legacy customizations field
   customizations?: Record<string, { name: string; price: number }>;
+  // New add-ons field
+  addOns?: SelectedAddOn[];
 }
 
 interface Discount {
@@ -44,9 +62,17 @@ const calculateDiscountAmount = (state: CartState): number => {
   const subtotal = state.items.reduce((total, item) => {
     let itemTotal = item.price * item.quantity;
     
+    // Include legacy customizations price
     if (item.customizations) {
       Object.values(item.customizations).forEach(option => {
         itemTotal += option.price * item.quantity;
+      });
+    }
+    
+    // Include new add-ons price
+    if (item.addOns && item.addOns.length > 0) {
+      item.addOns.forEach(addOn => {
+        itemTotal += addOn.price * item.quantity;
       });
     }
     
@@ -74,6 +100,30 @@ const calculateDiscountAmount = (state: CartState): number => {
   return Math.round(discountAmount * 100) / 100; // Round to 2 decimal places
 };
 
+// Helper function to check if two arrays of add-ons are the same
+const areAddOnsEqual = (addOns1?: SelectedAddOn[], addOns2?: SelectedAddOn[]): boolean => {
+  // If both are undefined or empty, they're equal
+  if ((!addOns1 || addOns1.length === 0) && (!addOns2 || addOns2.length === 0)) {
+    return true;
+  }
+  
+  // If one is defined but the other isn't, or they have different lengths, they're not equal
+  if ((!addOns1 && addOns2) || (addOns1 && !addOns2) || (addOns1?.length !== addOns2?.length)) {
+    return false;
+  }
+  
+  // At this point, both are defined and have the same length
+  // Sort both arrays by ID to ensure consistent comparison
+  const sorted1 = [...(addOns1 || [])].sort((a, b) => a.id.localeCompare(b.id));
+  const sorted2 = [...(addOns2 || [])].sort((a, b) => a.id.localeCompare(b.id));
+  
+  // Compare each add-on
+  return sorted1.every((addOn, index) => {
+    const otherAddOn = sorted2[index];
+    return addOn.id === otherAddOn.id && addOn.price === otherAddOn.price;
+  });
+};
+
 const cartSlice = createSlice({
   name: 'cart',
   initialState,
@@ -81,12 +131,13 @@ const cartSlice = createSlice({
     addToCart: (state, action: PayloadAction<CartItem>) => {
       const newItem = action.payload;
       
-      // Check if the item already exists with the same customizations and size
+      // Check if the item already exists with the same customizations, add-ons, and size
       const existingItemIndex = state.items.findIndex(
         item => 
           item.id === newItem.id && 
           item.size === newItem.size && 
-          JSON.stringify(item.customizations) === JSON.stringify(newItem.customizations)
+          JSON.stringify(item.customizations) === JSON.stringify(newItem.customizations) &&
+          areAddOnsEqual(item.addOns, newItem.addOns)
       );
 
       if (existingItemIndex >= 0) {
@@ -187,10 +238,17 @@ export const selectSubtotal = (state: { cart: CartState }) =>
   state.cart.items.reduce((total, item) => {
     let itemTotal = item.price * item.quantity;
     
-    // Add customization prices
+    // Add legacy customization prices
     if (item.customizations) {
       Object.values(item.customizations).forEach(option => {
         itemTotal += option.price * item.quantity;
+      });
+    }
+    
+    // Add new add-on prices
+    if (item.addOns && item.addOns.length > 0) {
+      item.addOns.forEach(addOn => {
+        itemTotal += addOn.price * item.quantity;
       });
     }
     
