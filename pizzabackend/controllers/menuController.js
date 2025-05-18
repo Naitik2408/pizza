@@ -1,31 +1,36 @@
 const MenuItem = require('../models/MenuItem');
 
-// Fetch all menu items
+// Update getMenuItems to support sizeType filtering
 const getMenuItems = async (req, res) => {
   try {
-    const { category, foodType, size } = req.query; // Added size filtering
-    
+    const { category, foodType, size, sizeType } = req.query;
+
     // Build the query object
     const query = {};
-    
+
     if (category && category !== 'All') {
       query.category = category;
     }
-    
+
     if (foodType && foodType !== 'All') {
       query.foodType = foodType;
     }
-    
+
+    // Add sizeType filtering
+    if (sizeType && ['single', 'multiple'].includes(sizeType)) {
+      query.sizeType = sizeType;
+    }
+
     // Filter by size if specified
-    if (size && size !== 'All') {
+    if (size && size !== 'All' && size !== 'Not Applicable') {
       query.$or = [
         // Match items with this size in size variations
         { 'sizeVariations.size': size },
         // Or match single-size items with this size
-        { size: size, hasMultipleSizes: false }
+        { size: size, sizeType: 'single' }
       ];
     }
-    
+
     const menuItems = await MenuItem.find(query);
     res.json(menuItems);
   } catch (error) {
@@ -33,16 +38,17 @@ const getMenuItems = async (req, res) => {
   }
 };
 
-// Add a new menu item
+// Update addMenuItem to handle add-ons and customizations
 const addMenuItem = async (req, res) => {
-  const { 
+  const {
     name, description, price, category, image,
-    available, popular, foodType, size, 
-    sizeVariations, rating 
+    available, popular, foodType, size,
+    sizeVariations, rating, sizeType, hasMultipleSizes,
+    hasAddOns, addOnGroups
   } = req.body;
 
   try {
-    const newMenuItem = new MenuItem({
+    const menuItemData = {
       name,
       description,
       price, // Base price
@@ -52,11 +58,19 @@ const addMenuItem = async (req, res) => {
       popular,
       foodType,
       size: size || 'Medium', // Default size
+      sizeType: sizeType || 'single', // Use the explicit sizeType
       rating: rating || 0,
       // Add size variations if provided
-      sizeVariations: sizeVariations || []
-    });
+      sizeVariations: sizeType === 'multiple' ? sizeVariations : []
+    };
 
+    // Add customization data if provided
+    if (hasAddOns) {
+      menuItemData.hasAddOns = hasAddOns;
+      menuItemData.addOnGroups = addOnGroups || [];
+    }
+
+    const newMenuItem = new MenuItem(menuItemData);
     const savedMenuItem = await newMenuItem.save();
     res.status(201).json(savedMenuItem);
   } catch (error) {
@@ -64,27 +78,42 @@ const addMenuItem = async (req, res) => {
   }
 };
 
-// Edit a menu item
+// Update editMenuItem to handle add-ons and customizations
 const editMenuItem = async (req, res) => {
   const { id } = req.params;
-  const { 
+  const {
     name, description, price, category, image,
     available, popular, foodType, size,
-    sizeVariations, rating 
+    sizeVariations, rating, sizeType, hasMultipleSizes,
+    hasAddOns, addOnGroups
   } = req.body;
 
   try {
     // Prepare update object
     const updateData = {
       name, description, price, category, image,
-      available, popular, foodType, size, rating
+      available, popular, foodType, size, rating,
+      sizeType: sizeType || 'single'
     };
-    
-    // Add size variations if provided
-    if (sizeVariations) {
+
+    // Add size variations if this is a multiple-size item
+    if (sizeType === 'multiple' && sizeVariations) {
       updateData.sizeVariations = sizeVariations;
+    } else {
+      // If switching to single-size, clear variations
+      updateData.sizeVariations = [];
     }
-    
+
+    // Add customization data if provided
+    if (hasAddOns !== undefined) {
+      updateData.hasAddOns = hasAddOns;
+      if (hasAddOns && addOnGroups) {
+        updateData.addOnGroups = addOnGroups;
+      } else {
+        updateData.addOnGroups = [];
+      }
+    }
+
     const updatedMenuItem = await MenuItem.findByIdAndUpdate(
       id,
       updateData,
@@ -138,7 +167,7 @@ const toggleAvailability = async (req, res) => {
   }
 };
 
-// NEW: Toggle availability for a specific size
+// Toggle availability for a specific size
 const toggleSizeAvailability = async (req, res) => {
   const { id } = req.params;
   const { size } = req.body;
@@ -177,6 +206,52 @@ const toggleSizeAvailability = async (req, res) => {
   }
 };
 
+// Toggle availability for a specific add-on
+const toggleAddOnAvailability = async (req, res) => {
+  const { id } = req.params;
+  const { groupId, addOnId } = req.body;
+
+  try {
+    const menuItem = await MenuItem.findById(id);
+
+    if (!menuItem) {
+      return res.status(404).json({ message: 'Menu item not found' });
+    }
+
+    if (!groupId || !addOnId) {
+      return res.status(400).json({ message: 'Group ID and Add-on ID are required' });
+    }
+
+    if (!menuItem.hasAddOns) {
+      return res.status(400).json({ message: 'This item does not have customizations' });
+    }
+
+    // Find the group and add-on
+    const groupIndex = menuItem.addOnGroups.findIndex(group => group.id === groupId);
+    
+    if (groupIndex === -1) {
+      return res.status(404).json({ message: 'Customization group not found' });
+    }
+
+    const addOnIndex = menuItem.addOnGroups[groupIndex].addOns.findIndex(
+      addOn => addOn.id === addOnId
+    );
+
+    if (addOnIndex === -1) {
+      return res.status(404).json({ message: 'Customization option not found' });
+    }
+
+    // Toggle the availability
+    menuItem.addOnGroups[groupIndex].addOns[addOnIndex].available = 
+      !menuItem.addOnGroups[groupIndex].addOns[addOnIndex].available;
+    
+    await menuItem.save();
+    res.json(menuItem);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Rate a menu item
 const rateMenuItem = async (req, res) => {
   const { id } = req.params;
@@ -184,22 +259,41 @@ const rateMenuItem = async (req, res) => {
 
   try {
     const menuItem = await MenuItem.findById(id);
-    
+
     if (!menuItem) {
       return res.status(404).json({ message: 'Menu item not found' });
     }
-    
+
     // Calculate new average rating
     const newRatingCount = menuItem.ratingCount + 1;
     const newRating = ((menuItem.rating * menuItem.ratingCount) + rating) / newRatingCount;
-    
+
     // Update with new rating
     menuItem.rating = parseFloat(newRating.toFixed(1)); // Round to 1 decimal place
     menuItem.ratingCount = newRatingCount;
-    
+
     await menuItem.save();
-    
+
     res.json(menuItem);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get all available sizes
+const getAvailableSizes = async (req, res) => {
+  try {
+    // Get all unique sizes used in items, both as primary size and in variations
+    const singleSizesResult = await MenuItem.distinct('size', { sizeType: 'single' });
+    const variationSizesResult = await MenuItem.distinct('sizeVariations.size');
+    
+    // Combine and deduplicate
+    const allSizes = [...new Set([...singleSizesResult, ...variationSizesResult])];
+    
+    // Filter out 'Not Applicable'
+    const availableSizes = allSizes.filter(size => size !== 'Not Applicable');
+    
+    res.json(availableSizes);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -211,6 +305,8 @@ module.exports = {
   editMenuItem,
   deleteMenuItem,
   toggleAvailability,
-  toggleSizeAvailability, // New function
+  toggleSizeAvailability,
+  toggleAddOnAvailability, // New function
   rateMenuItem,
+  getAvailableSizes
 };

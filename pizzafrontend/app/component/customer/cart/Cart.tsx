@@ -27,6 +27,14 @@ import OrderConfirmation from './OrderConfirmaton';
 // Import Address interface
 import { Address } from '../../../Api/addressApi';
 
+// Selected add-on interface
+interface SelectedAddOn {
+  id: string;
+  name: string;
+  price: number;
+  hasSizeSpecificPricing?: boolean;
+}
+
 // Define checkout steps
 type CheckoutStep = 'cart' | 'address' | 'payment' | 'confirmation';
 
@@ -105,7 +113,7 @@ const Cart = () => {
 
   // Function to navigate to menu
   const navigateToMenu = () => {
-    router.push('/(tabs)/menu');
+    router.push('../(tabs)/menu');
   };
 
   const applyOfferCode = async (codeToApply?: string) => {
@@ -254,7 +262,13 @@ const Cart = () => {
   const handleOrderComplete = () => {
     dispatch(clearCart());
     setCheckoutStep('cart');
-    router.push('/(tabs)');
+    router.push('../(tabs)');
+  };
+
+  // Helper function to calculate the price of add-ons
+  const calculateAddOnPrice = (item: any): number => {
+    if (!item.addOns || item.addOns.length === 0) return 0;
+    return item.addOns.reduce((total: number, addOn: SelectedAddOn) => total + addOn.price, 0);
   };
 
   // Render different components based on checkout step
@@ -295,7 +309,7 @@ const Cart = () => {
           city: selectedAddress.city,
           state: selectedAddress.state,
           postalCode: selectedAddress.zipCode,
-          landmark: selectedAddress.landmark || '' // Handle potentially undefined landmark
+          landmark: selectedAddress.landmark || '' // This will now work with the updated interface
         }}
       />
     );
@@ -328,7 +342,7 @@ const Cart = () => {
           </Text>
           <TouchableOpacity
             style={styles.browseButton}
-            onPress={() => router.push('/(tabs)/menu')}
+            onPress={() => router.push('../(tabs)/menu')}
           >
             <Text style={styles.browseButtonText}>Browse Menu</Text>
           </TouchableOpacity>
@@ -358,19 +372,26 @@ const Cart = () => {
 
                   <Text style={styles.itemSize}>{item.size}</Text>
 
-                  {/* Show customizations if any */}
+                  {/* Show legacy customizations if any */}
                   {item.customizations && Object.keys(item.customizations).length > 0 && (
                     <Text style={styles.itemCustomizations}>
                       {Object.values(item.customizations)
-                        .map(option => option.name)
+                        .map((option: any) => option.name)
                         .join(', ')
                       }
                     </Text>
                   )}
 
+                  {/* Show new add-ons if any */}
+                  {item.addOns && item.addOns.length > 0 && (
+                    <Text style={styles.itemCustomizations}>
+                      {item.addOns.map((addOn: SelectedAddOn) => addOn.name).join(', ')}
+                    </Text>
+                  )}
+
                   <View style={styles.itemFooter}>
                     <Text style={styles.itemPrice}>
-                      ₹{(item.price * item.quantity).toFixed(2)}
+                      ₹{((item.price + calculateAddOnPrice(item)) * item.quantity).toFixed(2)}
                     </Text>
                     <View style={styles.quantityControl}>
                       <TouchableOpacity
@@ -452,6 +473,15 @@ const Cart = () => {
             {offerError && (
               <>
                 <Text style={styles.offerErrorText}>{offerError}</Text>
+                {minOrderRequirement && (
+                  <TouchableOpacity
+                    style={styles.addMoreItemsButton}
+                    onPress={navigateToMenu}
+                  >
+                    <AntDesign name="plus" size={16} color="#FFF" />
+                    <Text style={styles.addMoreItemsText}>Add More Items</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
 
@@ -607,6 +637,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
+    flex: 1,
+    marginRight: 8,
   },
   itemSize: {
     fontSize: 14,
@@ -743,7 +775,7 @@ const styles = StyleSheet.create({
     padding: 5,
     marginLeft: 10,
   },
-  // New "Add More Items" button for minimum order requirements
+  // "Add More Items" button for minimum order requirements
   addMoreItemsButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -815,7 +847,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FF6B00',
   },
-  // New order action styles for two buttons
+  // Order action styles for the two buttons
   orderActions: {
     flexDirection: 'row',
     marginTop: 15,

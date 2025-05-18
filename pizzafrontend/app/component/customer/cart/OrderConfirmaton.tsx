@@ -28,6 +28,7 @@ interface OrderConfirmationProps {
     city: string;
     state: string;
     postalCode: string;
+    landmark?: string;
   };
 }
 
