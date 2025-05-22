@@ -633,6 +633,101 @@ const deleteOffer = async (req, res) => {
   }
 };
 
+
+// Get user by ID
+const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Return user with appropriate details
+    if (user.role === 'delivery') {
+      // For delivery agents, include their specific details
+      return res.json({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        deliveryDetails: {
+          vehicleType: user.deliveryDetails.vehicleType,
+          aadharCard: user.deliveryDetails.aadharCard,
+          drivingLicense: user.deliveryDetails.drivingLicense,
+          isVerified: user.deliveryDetails.isVerified,
+          status: user.deliveryDetails.status,
+          verificationNotes: user.deliveryDetails.verificationNotes,
+          isOnline: user.deliveryDetails.isOnline,
+          lastActiveTime: user.deliveryDetails.lastActiveTime
+        }
+      });
+    } else {
+      // For other users, return general info
+      return res.json(user);
+    }
+  } catch (error) {
+    console.error('Error fetching user details:', error);
+    res.status(500).json({ message: 'Failed to fetch user details' });
+  }
+};
+
+// Update delivery partner verification status
+const updateDeliveryVerification = async (req, res) => {
+  try {
+    const { status, verificationNotes } = req.body;
+    
+    if (!status || !['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status value' });
+    }
+    
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    if (user.role !== 'delivery') {
+      return res.status(400).json({ message: 'User is not a delivery partner' });
+    }
+    
+    // Update verification status
+    user.deliveryDetails.status = status;
+    user.deliveryDetails.isVerified = status === 'approved';
+    
+    // Add verification notes if provided
+    if (verificationNotes) {
+      user.deliveryDetails.verificationNotes = verificationNotes;
+    }
+    
+    await user.save();
+    
+    // Return updated user
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      deliveryDetails: {
+        vehicleType: user.deliveryDetails.vehicleType,
+        aadharCard: user.deliveryDetails.aadharCard,
+        drivingLicense: user.deliveryDetails.drivingLicense,
+        isVerified: user.deliveryDetails.isVerified,
+        status: user.deliveryDetails.status,
+        verificationNotes: user.deliveryDetails.verificationNotes,
+        isOnline: user.deliveryDetails.isOnline
+      }
+    });
+  } catch (error) {
+    console.error('Error updating verification status:', error);
+    res.status(500).json({ message: 'Failed to update verification status' });
+  }
+};
+
 // Update the module exports to include the new functions
 module.exports = {
   getOrders,
@@ -647,5 +742,7 @@ module.exports = {
   getOfferById,
   createOffer,
   updateOffer,
-  deleteOffer
+  deleteOffer,
+  updateDeliveryVerification,
+  getUserById
 };

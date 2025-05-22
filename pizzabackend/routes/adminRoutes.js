@@ -13,6 +13,8 @@ const {
   getOfferById,
   updateOffer,
   deleteOffer,
+  getUserById,
+  updateDeliveryVerification
 } = require('../controllers/adminController');
 
 const router = express.Router();
@@ -35,6 +37,9 @@ router.get('/stats', protect, admin, getDashboardStats);
 // User management routes
 router.get('/users', protect, admin, getAllUsers);
 router.put('/users/:id/role', protect, admin, updateUserRole);
+// Add these routes to fetch individual user details and update verification status
+router.get('/users/:id', protect, admin, getUserById);
+router.put('/users/:id/verification', protect, admin, updateDeliveryVerification);
 
 
 // Add these to adminRoutes.js
