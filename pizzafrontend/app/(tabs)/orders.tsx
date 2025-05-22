@@ -31,6 +31,11 @@ interface OrderItem {
     option: string;
     price: number;
   }>;
+  addOns?: Array<{
+    id: string;
+    name: string;
+    price: number;
+  }>;
 }
 
 // Define interface for status update
@@ -166,6 +171,29 @@ export default function OrdersScreen() {
         order.status === 'Delivered' || order.status === 'Cancelled'
       );
 
+      // Ensure items have proper customization array structure
+      currentOrdersData.forEach((order: Order) => {
+        order.items.forEach((item: OrderItem) => {
+          if (!Array.isArray(item.customizations)) {
+            item.customizations = [];
+          }
+          if (!Array.isArray(item.addOns)) {
+            item.addOns = [];
+          }
+        });
+      });
+
+      pastOrdersData.forEach((order: Order) => {
+        order.items.forEach((item: OrderItem) => {
+          if (!Array.isArray(item.customizations)) {
+            item.customizations = [];
+          }
+          if (!Array.isArray(item.addOns)) {
+            item.addOns = [];
+          }
+        });
+      });
+
       // Update state with the fetched orders
       setCurrentOrders(currentOrdersData);
       setPastOrders(pastOrdersData);
@@ -179,7 +207,6 @@ export default function OrdersScreen() {
     }
   }, [token, router, refreshing, isGuest]);
 
-
   // Add this function to your component
   const onRefresh = useCallback(() => {
     if (isGuest) return; // Don't refresh for guest users
@@ -187,7 +214,6 @@ export default function OrdersScreen() {
     setRefreshing(true);
     fetchUserOrders();
   }, [fetchUserOrders, isGuest]);
-
 
   // Fetch orders on component mount
   useEffect(() => {
@@ -367,9 +393,18 @@ export default function OrdersScreen() {
           <Text style={styles.itemQuantity}>
             x{item.quantity} {item.size && `• ${item.size}`}
           </Text>
+
+          {/* Display base customizations if available */}
           {item.customizations && item.customizations.length > 0 && (
             <Text style={styles.itemCustomizations}>
-              {item.customizations.map(c => `${c.name}: ${c.option}`).join(', ')}
+              Customizations: {item.customizations.map(c => `${c.name}: ${c.option}`).join(', ')}
+            </Text>
+          )}
+
+          {/* Display add-ons if available */}
+          {item.addOns && item.addOns.length > 0 && (
+            <Text style={styles.itemCustomizations}>
+              Add-ons: {item.addOns.map(addon => addon.name).join(', ')}
             </Text>
           )}
         </View>
@@ -577,7 +612,7 @@ export default function OrdersScreen() {
 
             {renderInvoice(order)}
 
-            {/* {(order.status === 'Pending' || order.status === 'Preparing') && (
+            {(order.status === 'Pending' || order.status === 'Preparing') && (
               <TouchableOpacity
                 style={styles.cancelButton}
                 onPress={() => handleCancelOrder(order._id)}
@@ -585,7 +620,7 @@ export default function OrdersScreen() {
                 <X size={16} color="#fff" />
                 <Text style={styles.cancelButtonText}>Cancel Order</Text>
               </TouchableOpacity>
-            )} */}
+            )}
           </View>
         )}
 
@@ -775,7 +810,7 @@ export default function OrdersScreen() {
 
           <ScrollView
             style={styles.ordersContainer}
-            contentContainerStyle={{ paddingBottom: 100 }} // Add this line with bottom padding
+            contentContainerStyle={{ paddingBottom: 100 }}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}

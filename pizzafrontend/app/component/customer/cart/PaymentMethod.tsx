@@ -16,13 +16,13 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../../../redux/store';
 // @ts-ignore: Module has no type definitions
 import RazorpayCheckout from 'react-native-razorpay';
-import { 
-    clearCart, 
-    selectCartItems, 
-    selectSubtotal, 
-    selectDeliveryFee, 
-    selectTaxAmount, 
-    selectTotal 
+import {
+    clearCart,
+    selectCartItems,
+    selectSubtotal,
+    selectDeliveryFee,
+    selectTaxAmount,
+    selectTotal
 } from '../../../../redux/slices/cartSlice'; // Import the selectors
 import { API_URL } from '@/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,27 +45,42 @@ interface PaymentMethodProps {
     };
 }
 
+
+// First, add these interfaces at the top of your file, below your existing interfaces
+interface CustomizationItem {
+    name: string;
+    option: string;
+    price: number;
+}
+
+interface AddOnItem {
+    name: string;
+    option: string;
+    price: number;
+}
+
+
 const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMethodProps) => {
     const [selectedMethod, setSelectedMethod] = useState<'razorpay' | 'cod'>('razorpay');
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
-    
+
     // For guest users who want to provide minimal contact info
     const [guestName, setGuestName] = useState<string>('');
     const [guestPhone, setGuestPhone] = useState<string>(deliveryAddress.phone || '');
     const [guestPhoneError, setGuestPhoneError] = useState<string | null>(null);
     const [showGuestInfoForm, setShowGuestInfoForm] = useState<boolean>(false);
-    
+
     const dispatch = useDispatch();
 
     // Access auth state directly matching the actual slice structure
     const auth = useSelector((state: RootState) => state.auth);
     const { token, name, email, isGuest } = auth;
-    
+
     // Use safe default values
     const userName = name || 'Guest';
     const userEmail = email || 'guest@example.com';
-    
+
     // Get phone from deliveryAddress or use a default
     const phone = deliveryAddress.phone || guestPhone || '9999999999';
 
@@ -86,7 +101,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
             // Get existing guest orders
             const existingOrdersJson = await AsyncStorage.getItem('guestOrders');
             const existingOrders = existingOrdersJson ? JSON.parse(existingOrdersJson) : [];
-            
+
             // Add new order with a unique ID and timestamp
             const newOrder = {
                 ...orderData,
@@ -96,12 +111,12 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
-            
+
             const updatedOrders = [...existingOrders, newOrder];
-            
+
             // Store updated orders
             await AsyncStorage.setItem('guestOrders', JSON.stringify(updatedOrders));
-            
+
             return newOrder;
         } catch (error) {
             console.error('Error storing guest order:', error);
@@ -111,7 +126,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
 
     const validateGuestInfo = () => {
         let isValid = true;
-        
+
         // Validate phone number
         if (!guestPhone || guestPhone.length !== 10 || !/^\d{10}$/.test(guestPhone)) {
             setGuestPhoneError('Please enter a valid 10-digit phone number');
@@ -119,10 +134,11 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
         } else {
             setGuestPhoneError(null);
         }
-        
+
         return isValid;
     };
 
+    // Inside the createOrder function, update the formattedItems section:
     const createOrder = async (paymentMethod: 'Online' | 'Cash on Delivery', paymentDetails?: any) => {
         setIsProcessingPayment(true);
         setApiError(null);
@@ -143,27 +159,65 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 }
             }
 
-            // Format the items for the API
-            const formattedItems = cartItems.map(item => ({
-                menuItemId: item.id,
-                name: item.name,
-                quantity: item.quantity,
-                price: item.price,
-                size: item.size || 'Not Applicable',
-                foodType: item.foodType || 'Not Applicable',
-                customizations: item.customizations 
-                    ? Object.entries(item.customizations).map(([name, option]) => ({
+            // Format the items for the API - THIS IS THE KEY SECTION TO FIX
+            // First, add these interfaces at the top of your file, below your existing interfaces
+            interface CustomizationItem {
+                name: string;
+                option: string;
+                price: number;
+            }
+
+            interface AddOnItem {
+                name: string;
+                option: string;
+                price: number;
+            }
+
+            // Then in your createOrder function, update the arrays with explicit types:
+            const formattedItems = cartItems.map(item => {
+                // Create proper arrays for customizations with explicit type
+                let customizationsArray: CustomizationItem[] = [];
+                if (item.customizations) {
+                    // Convert object format to array format
+                    customizationsArray = Object.entries(item.customizations).map(([name, option]) => ({
                         name,
-                        option: option.name,
-                        price: option.price
-                    }))
-                    : []
-            }));
+                        option: typeof option === 'string' ? option : option.name,
+                        price: typeof option === 'string' ? 0 : (option.price || 0)
+                    }));
+                }
+
+                // Create proper array for add-ons with explicit type
+                let addOnsArray: AddOnItem[] = [];
+                if (item.addOns && Array.isArray(item.addOns) && item.addOns.length > 0) {
+                    addOnsArray = item.addOns.map(addon => ({
+                        name: addon.name,
+                        option: addon.name, // Use name as option if not provided
+                        price: addon.price || 0
+                    }));
+                }
+
+                // Log the processed data for debugging
+                console.log(`Processing item ${item.name}:`, {
+                    customizations: customizationsArray,
+                    addOns: addOnsArray
+                });
+
+                return {
+                    menuItemId: item.id,
+                    name: item.name,
+                    quantity: item.quantity,
+                    price: item.price,
+                    size: item.size || 'Not Applicable',
+                    foodType: item.foodType || 'Not Applicable',
+                    customizations: customizationsArray,
+                    addOns: addOnsArray
+                };
+            });
 
             // Prepare the order data
             const orderData = {
                 items: formattedItems,
-                amount: total, // This is now the discounted total from the selector
+                amount: total,
                 subtotal: subtotal,
                 discount: discountAmount,
                 discountCode: appliedDiscount ? appliedDiscount.code : '',
@@ -184,24 +238,27 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 notes: ''
             };
 
+            // Log the full order data for debugging
+            console.log('Sending order data to API:', JSON.stringify(orderData, null, 2));
+
             // For guest users, store locally and don't send to server
             if (isGuest) {
                 try {
-                    const guestOrder = await storeGuestOrder(orderData);
-                    
-                    // Clear the cart after successful order creation
+                    const savedOrder = await storeGuestOrder(orderData);
+
+                    // Clear the cart
                     dispatch(clearCart());
-                    
-                    // Pass the response to the onPaymentComplete callback
+
+                    // Complete the order process
                     onPaymentComplete({
                         method: paymentMethod === 'Online' ? 'razorpay' : 'cod',
                         details: paymentDetails,
-                        orderId: guestOrder.orderNumber
+                        orderId: savedOrder.orderNumber
                     });
-                    
+
                     return;
                 } catch (error) {
-                    throw error; // Re-throw to be caught by outer catch block
+                    throw new Error('Failed to save your order. Please try again.');
                 }
             }
 
@@ -228,10 +285,10 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
 
             // Parse the response data
             const data = await response.json();
-            
+
             // Clear the cart after successful order creation
             dispatch(clearCart());
-            
+
             // Pass the response to the onPaymentComplete callback
             onPaymentComplete({
                 method: paymentMethod === 'Online' ? 'razorpay' : 'cod',
@@ -241,19 +298,19 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
 
         } catch (error) {
             console.error('Create order error:', error);
-            
+
             let errorMessage = 'Failed to create order. Please try again.';
             if (error instanceof Error) {
                 errorMessage = error.message;
             }
-            
+
             setApiError(errorMessage);
             Alert.alert('Order Error', errorMessage);
         } finally {
             setIsProcessingPayment(false);
         }
     };
-    
+
     const handleRazorpayPayment = async () => {
         if (isProcessingPayment) return;
 
@@ -374,7 +431,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                         <Text style={styles.guestFormSubtitle}>
                             We need minimal information to process your order. This information will not be stored on our servers.
                         </Text>
-                        
+
                         <View style={styles.inputGroup}>
                             <Text style={styles.inputLabel}>Your Name (Optional)</Text>
                             <TextInput
@@ -384,7 +441,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                                 onChangeText={setGuestName}
                             />
                         </View>
-                        
+
                         <View style={styles.inputGroup}>
                             <Text style={styles.inputLabel}>Phone Number*</Text>
                             <TextInput
@@ -410,23 +467,23 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                                 Required for delivery communication only
                             </Text>
                         </View>
-                        
+
                         <View style={styles.guestPrivacyNote}>
                             <MaterialIcons name="security" size={18} color="#666" />
                             <Text style={styles.privacyText}>
                                 Your information is stored only on this device and used only for this order.
                             </Text>
                         </View>
-                        
+
                         <View style={styles.guestFormButtons}>
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 style={styles.guestCancelButton}
                                 onPress={handleGuestFormCancel}
                             >
                                 <Text style={styles.guestCancelButtonText}>Cancel</Text>
                             </TouchableOpacity>
-                            
-                            <TouchableOpacity 
+
+                            <TouchableOpacity
                                 style={[
                                     styles.guestContinueButton,
                                     (!guestPhone || guestPhone.length !== 10) && styles.disabledButton
@@ -611,7 +668,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
-        paddingTop: Platform.OS === 'ios' ? 60 : 50, 
+        paddingTop: Platform.OS === 'ios' ? 60 : 50,
         paddingBottom: 16,
         backgroundColor: 'white',
         borderBottomWidth: 1,
@@ -833,7 +890,7 @@ const styles = StyleSheet.create({
         color: '#D32F2F',
         fontSize: 14,
     },
-    
+
     // New guest-specific styles
     guestInfoNote: {
         flexDirection: 'row',

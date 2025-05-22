@@ -325,7 +325,7 @@ export default function DeliveryProfile() {
           )}
 
           {/* Account Settings Section */}
-          <View style={styles.section}>
+          {/* <View style={styles.section}>
             <Text style={styles.sectionTitle}>Account</Text>
 
             <TouchableOpacity style={styles.menuItem}>
@@ -357,7 +357,7 @@ export default function DeliveryProfile() {
                 <Text style={styles.menuItemDescription}>Privacy and security</Text>
               </View>
             </TouchableOpacity>
-          </View>
+          </View> */}
 
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
             <LogOut size={20} color="#FF4B4B" />

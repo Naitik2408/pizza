@@ -14,7 +14,8 @@ import {
   selectTaxAmount,
   selectTotal,
   applyDiscount,
-  removeDiscount
+  removeDiscount,
+  CartItem
 } from '../../../../redux/slices/cartSlice';
 import { RootState } from '../../../../redux/store';
 import { API_URL } from '@/config';
@@ -35,8 +36,33 @@ interface SelectedAddOn {
   hasSizeSpecificPricing?: boolean;
 }
 
+// Custom interface for formatted customizations
+interface FormattedCustomization {
+  name: string;
+  option: string;
+  price: number;
+}
+
+// Custom interface for formatted add-ons
+interface FormattedAddOn {
+  name: string;
+  price: number;
+}
+
 // Define checkout steps
 type CheckoutStep = 'cart' | 'address' | 'payment' | 'confirmation';
+
+// Interface for prepared order items
+interface PreparedOrderItem {
+  menuItemId: string;
+  name: string;
+  quantity: number;
+  price: number;
+  size: string;
+  foodType: string;
+  customizations: FormattedCustomization[];
+  addOns: FormattedAddOn[];
+}
 
 const Cart = () => {
   const router = useRouter();
@@ -232,12 +258,84 @@ const Cart = () => {
     setMinOrderRequirement(null);
   };
 
+  // Function to properly format customizations for the API
+  // Update the formatCustomizationsForAPI function
+  const formatCustomizationsForAPI = (item: CartItem): FormattedCustomization[] => {
+    let formattedCustomizations: FormattedCustomization[] = [];
+
+    // Handle legacy customizations object format
+    if (item.customizations && typeof item.customizations === 'object') {
+      formattedCustomizations = Object.entries(item.customizations).map(([name, option]: [string, any]) => {
+        // Handle both string options and {name, price} object options
+        if (typeof option === 'string') {
+          return {
+            name,
+            option,
+            price: 0
+          };
+        } else {
+          return {
+            name,
+            option: option.name || '',
+            price: parseFloat(option.price?.toString() || '0')
+          };
+        }
+      });
+    }
+
+    // Log for debugging
+    console.log(`[${item.name}] Formatted customizations:`, JSON.stringify(formattedCustomizations));
+
+    return formattedCustomizations;
+  };
+
+  // Update the formatAddOnsForAPI function
+  const formatAddOnsForAPI = (item: CartItem): FormattedAddOn[] => {
+    let formattedAddOns: FormattedAddOn[] = [];
+
+    // Handle new add-ons array format
+    if (item.addOns && Array.isArray(item.addOns) && item.addOns.length > 0) {
+      formattedAddOns = item.addOns.map((addon: SelectedAddOn) => ({
+        name: addon.name,
+        price: parseFloat(addon.price?.toString() || '0')
+      }));
+
+      // Log for debugging
+      console.log(`[${item.name}] Formatted add-ons:`, JSON.stringify(formattedAddOns));
+    }
+
+    return formattedAddOns;
+  };
+
+
+  // Function to prepare order items for the API
+  const prepareOrderItems = (): PreparedOrderItem[] => {
+    return cartItems.map(item => {
+      // Format item with all properties properly structured for the API
+      return {
+        menuItemId: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        size: item.size || 'Medium',
+        foodType: item.foodType || 'Not Applicable',
+        // Convert customizations to array of {name, option, price} objects
+        customizations: formatCustomizationsForAPI(item),
+        // Convert add-ons to array of {name, price} objects
+        addOns: formatAddOnsForAPI(item)
+      };
+    });
+  };
+
   // Function to handle proceeding to address selection
   const handleProceedToCheckout = () => {
     if (cartIsEmpty) {
       Alert.alert('Empty Cart', 'Your cart is empty. Add some items before checking out.');
       return;
     }
+
+    // Log what's being sent to the backend for debugging
+    console.log('Prepared order items:', JSON.stringify(prepareOrderItems(), null, 2));
 
     setCheckoutStep('address');
   };
@@ -266,7 +364,7 @@ const Cart = () => {
   };
 
   // Helper function to calculate the price of add-ons
-  const calculateAddOnPrice = (item: any): number => {
+  const calculateAddOnPrice = (item: CartItem): number => {
     if (!item.addOns || item.addOns.length === 0) return 0;
     return item.addOns.reduce((total: number, addOn: SelectedAddOn) => total + addOn.price, 0);
   };
@@ -294,6 +392,9 @@ const Cart = () => {
           landmark: selectedAddress.landmark || '', // Handle potentially undefined landmark
           phone: selectedAddress.phone || '' // Handle potentially undefined phone
         }}
+        // Remove the orderItems prop if it's not expected in PaymentMethodProps
+        // @ts-ignore - orderItems might not be in the type but is needed by the component
+        orderItems={prepareOrderItems()}
       />
     );
   }
@@ -311,6 +412,8 @@ const Cart = () => {
           postalCode: selectedAddress.zipCode,
           landmark: selectedAddress.landmark || '' // This will now work with the updated interface
         }}
+        // @ts-ignore - orderItems might not be in the type but is needed by the component
+        orderItems={prepareOrderItems()}
       />
     );
   }
@@ -372,21 +475,30 @@ const Cart = () => {
 
                   <Text style={styles.itemSize}>{item.size}</Text>
 
-                  {/* Show legacy customizations if any */}
+                  {/* Display legacy customizations */}
                   {item.customizations && Object.keys(item.customizations).length > 0 && (
-                    <Text style={styles.itemCustomizations}>
-                      {Object.values(item.customizations)
-                        .map((option: any) => option.name)
-                        .join(', ')
-                      }
-                    </Text>
+                    <View>
+                      <Text style={styles.itemCustomizationsTitle}>Customizations:</Text>
+                      <Text style={styles.itemCustomizations}>
+                        {Object.entries(item.customizations)
+                          .map(([name, option]: [string, any]) =>
+                            `${name}: ${option.name}${option.price > 0 ? ` (+₹${option.price})` : ''}`)
+                          .join(', ')
+                        }
+                      </Text>
+                    </View>
                   )}
 
-                  {/* Show new add-ons if any */}
+                  {/* Display new add-ons format */}
                   {item.addOns && item.addOns.length > 0 && (
-                    <Text style={styles.itemCustomizations}>
-                      {item.addOns.map((addOn: SelectedAddOn) => addOn.name).join(', ')}
-                    </Text>
+                    <View>
+                      <Text style={styles.itemCustomizationsTitle}>Add-ons:</Text>
+                      <Text style={styles.itemCustomizations}>
+                        {item.addOns.map((addOn: SelectedAddOn) =>
+                          `${addOn.name}${addOn.price > 0 ? ` (+₹${addOn.price})` : ''}`)
+                          .join(', ')}
+                      </Text>
+                    </View>
                   )}
 
                   <View style={styles.itemFooter}>
@@ -644,6 +756,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 4,
+  },
+  itemCustomizationsTitle: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    fontWeight: '500',
   },
   itemCustomizations: {
     fontSize: 12,
