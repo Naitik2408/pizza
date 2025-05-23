@@ -4,44 +4,44 @@ const asyncHandler = require('express-async-handler');
 // @desc    Get orders assigned to the delivery agent
 // @route   GET /api/delivery/orders/assigned
 // @access  Private/Delivery
-const getAssignedOrders = asyncHandler(async (req, res) => {
-    const orders = await Order.find({
-        deliveryAgent: req.user._id,
-        status: { $nin: ['Delivered', 'Cancelled'] } // Changed from 'DELIVERED', 'CANCELLED' to match model
-    }).sort({ createdAt: -1 });
+// const getAssignedOrders = asyncHandler(async (req, res) => {
+//     const orders = await Order.find({
+//         deliveryAgent: req.user._id,
+//         status: { $nin: ['Delivered', 'Cancelled'] } // Changed from 'DELIVERED', 'CANCELLED' to match model
+//     }).sort({ createdAt: -1 });
 
-    // Format orders for frontend
-    const formattedOrders = orders.map(order => ({
-        id: order.orderNumber || order._id,
-        _id: order._id,
-        customer: {
-            name: order.customerName,
-            contact: order.customerPhone
-        },
-        items: order.items.map(item => ({
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price
-        })),
-        totalPrice: order.amount,
-        deliveryAddress: {
-            street: order.address.street,
-            city: order.address.city,
-            country: order.address.country || 'Poland',
-            notes: order.address.notes || order.notes
-        },
-        pickupLocation: {
-            name: order.restaurant?.name || 'Restaurant',
-            address: order.restaurant?.address || 'Restaurant Address'
-        },
-        estimatedDeliveryTime: order.estimatedDeliveryTime || '20-30 min',
-        status: order.status,
-        distance: order.distance || '2.5 km',
-        date: order.createdAt
-    }));
+//     // Format orders for frontend
+//     const formattedOrders = orders.map(order => ({
+//         id: order.orderNumber || order._id,
+//         _id: order._id,
+//         customer: {
+//             name: order.customerName,
+//             contact: order.customerPhone
+//         },
+//         items: order.items.map(item => ({
+//             name: item.name,
+//             quantity: item.quantity,
+//             price: item.price
+//         })),
+//         totalPrice: order.amount,
+//         deliveryAddress: {
+//             street: order.address.street,
+//             city: order.address.city,
+//             country: order.address.country || 'Poland',
+//             notes: order.address.notes || order.notes
+//         },
+//         pickupLocation: {
+//             name: order.restaurant?.name || 'Restaurant',
+//             address: order.restaurant?.address || 'Restaurant Address'
+//         },
+//         estimatedDeliveryTime: order.estimatedDeliveryTime || '20-30 min',
+//         status: order.status,
+//         distance: order.distance || '2.5 km',
+//         date: order.createdAt
+//     }));
 
-    res.json(formattedOrders);
-});
+//     res.json(formattedOrders);
+// });
 
 // @desc    Get completed orders for delivery agent
 // @route   GET /api/delivery/orders/completed
@@ -146,56 +146,56 @@ const getOrderDetails = asyncHandler(async (req, res) => {
 // @desc    Update order status
 // @route   PUT /api/delivery/orders/:id/status
 // @access  Private/Delivery
-const updateOrderStatus = async (req, res) => {
-    const { id } = req.params;
-    const { status, note } = req.body;
+// const updateOrderStatus = async (req, res) => {
+//     const { id } = req.params;
+//     const { status, note } = req.body;
 
-    try {
-        // Check if the order exists
-        const order = await Order.findById(id);
-        if (!order) {
-            return res.status(404).json({ message: 'Order not found' });
-        }
+//     try {
+//         // Check if the order exists
+//         const order = await Order.findById(id);
+//         if (!order) {
+//             return res.status(404).json({ message: 'Order not found' });
+//         }
 
-        // Check if this order is assigned to the current delivery agent
-        if (!order.deliveryAgent || order.deliveryAgent.toString() !== req.user._id.toString()) {
-            return res.status(403).json({ message: 'Not authorized to update this order' });
-        }
+//         // Check if this order is assigned to the current delivery agent
+//         if (!order.deliveryAgent || order.deliveryAgent.toString() !== req.user._id.toString()) {
+//             return res.status(403).json({ message: 'Not authorized to update this order' });
+//         }
 
-        // Validate the status is one of the allowed values
-        const validStatuses = ['Preparing', 'Out for delivery', 'Delivered'];
-        if (!validStatuses.includes(status)) {
-            return res.status(400).json({ message: 'Invalid status value' });
-        }
+//         // Validate the status is one of the allowed values
+//         const validStatuses = ['Preparing', 'Out for delivery', 'Delivered'];
+//         if (!validStatuses.includes(status)) {
+//             return res.status(400).json({ message: 'Invalid status value' });
+//         }
 
-        // Update the order status
-        order.status = status;
+//         // Update the order status
+//         order.status = status;
 
-        // Add status update entry
-        order.statusUpdates.push({
-            status,
-            time: new Date(),
-            note: note || `Status updated to ${status} by delivery agent`
-        });
+//         // Add status update entry
+//         order.statusUpdates.push({
+//             status,
+//             time: new Date(),
+//             note: note || `Status updated to ${status} by delivery agent`
+//         });
 
-        const updatedOrder = await order.save();
+//         const updatedOrder = await order.save();
 
-        console.log(`Order ${id} status updated to ${status} by delivery agent ${req.user.name}`);
+//         console.log(`Order ${id} status updated to ${status} by delivery agent ${req.user.name}`);
 
-        res.json({
-            success: true,
-            message: 'Order status updated successfully',
-            order: {
-                _id: updatedOrder._id,
-                status: updatedOrder.status,
-                statusUpdates: updatedOrder.statusUpdates
-            }
-        });
-    } catch (error) {
-        console.error('Error updating order status:', error);
-        res.status(500).json({ message: 'Failed to update order status' });
-    }
-};
+//         res.json({
+//             success: true,
+//             message: 'Order status updated successfully',
+//             order: {
+//                 _id: updatedOrder._id,
+//                 status: updatedOrder.status,
+//                 statusUpdates: updatedOrder.statusUpdates
+//             }
+//         });
+//     } catch (error) {
+//         console.error('Error updating order status:', error);
+//         res.status(500).json({ message: 'Failed to update order status' });
+//     }
+// };
 
 // @desc    Get delivery agent statistics
 // @route   GET /api/delivery/stats
@@ -422,10 +422,10 @@ const updateOrderPayment = asyncHandler(async (req, res) => {
 
 // Don't forget to add this to the module.exports
 module.exports = {
-    getAssignedOrders,
+    // getAssignedOrders,
     getCompletedOrders,
     getOrderDetails,
-    updateOrderStatus,
+    // updateOrderStatus,
     getDeliveryStats,
     getDeliveryDashboard,
     getOrdersPendingPayment,

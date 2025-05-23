@@ -7,6 +7,87 @@ const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 };
 
+/**
+ * Get user data with configurable detail levels based on permission
+ * @param {Object} user - The user object from the database
+ * @param {String} requestType - The type of request: 'self', 'admin', or 'basic'
+ * @returns {Object} Formatted user data object
+ */
+const getUserData = (user, requestType = 'basic') => {
+  if (!user) return null;
+
+  // Base user data that's safe for any permission level
+  const baseUserData = {
+    _id: user._id || user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+  };
+
+  // For delivery partners, include role-specific details
+  if (user.role === 'delivery' && user.deliveryDetails) {
+    // Basic delivery info for listings
+    const deliveryBaseInfo = {
+      vehicleType: user.deliveryDetails.vehicleType || 'Not specified',
+      isOnline: user.deliveryDetails.isOnline || false,
+      isVerified: user.deliveryDetails.isVerified || false,
+      status: user.deliveryDetails.status || 'pending'
+    };
+
+    // Admin view includes sensitive verification documents
+    const adminDeliveryInfo = {
+      ...deliveryBaseInfo,
+      aadharCard: user.deliveryDetails.aadharCard,
+      drivingLicense: user.deliveryDetails.drivingLicense,
+      verificationNotes: user.deliveryDetails.verificationNotes,
+      lastActiveTime: user.deliveryDetails.lastActiveTime
+    };
+
+    // Decide what level of delivery details to include
+    switch (requestType) {
+      case 'admin':
+        return {
+          ...baseUserData,
+          deliveryDetails: adminDeliveryInfo
+        };
+      case 'self':
+        return {
+          ...baseUserData,
+          deliveryDetails: {
+            ...adminDeliveryInfo,
+            // May exclude some sensitive internal notes
+            verificationNotes: user.deliveryDetails.status === 'rejected' ? 
+                              user.deliveryDetails.verificationNotes : undefined
+          }
+        };
+      default:
+        return {
+          ...baseUserData,
+          deliveryDetails: deliveryBaseInfo
+        };
+    }
+  }
+
+  // For customers, include address data only for self or admin
+  if (user.role === 'customer') {
+    switch (requestType) {
+      case 'admin':
+      case 'self':
+        return {
+          ...baseUserData,
+          addresses: user.addresses || []
+        };
+      default:
+        return baseUserData;
+    }
+  }
+
+  // For admin users, just return the base data
+  return baseUserData;
+};
+
 // Register user
 const registerUser = async (req, res) => {
   const { 
@@ -127,18 +208,12 @@ const loginUser = async (req, res) => {
       }
     }
 
-    // Login successful
+    // Use getUserData function to format response consistently
+    const userData = getUserData(user, 'self');
+
+    // Login successful - add token to the response
     res.json({
-      _id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      ...(user.role === 'delivery' && { 
-        deliveryDetails: {
-          vehicleType: user.deliveryDetails.vehicleType,
-          isOnline: user.deliveryDetails.isOnline
-        }
-      }),
+      ...userData,
       token: generateToken(user.id),
     });
   } catch (error) {
@@ -166,7 +241,7 @@ const logoutUser = async (req, res) => {
   }
 };
 
-// Get user profile with delivery details if applicable
+// Get user profile with delivery details if applicable - using the unified function
 const getUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -174,30 +249,36 @@ const getUserProfile = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    // Return appropriate data based on role
-    if (user.role === 'delivery') {
-      res.json({
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        deliveryDetails: {
-          vehicleType: user.deliveryDetails.vehicleType,
-          status: user.deliveryDetails.status,
-          isVerified: user.deliveryDetails.isVerified,
-          isOnline: user.deliveryDetails.isOnline
-        }
-      });
-    } else {
-      res.json({
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      });
-    }
+    // Use the new function with 'self' permission level
+    const userData = getUserData(user, 'self');
+    res.json(userData);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Get public profile data for a user
+const getUserPublicProfile = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // For regular users, only provide basic public info
+    // For self or admins, provide more details
+    const isSelf = req.user && req.user.id === userId;
+    const isAdmin = req.user && req.user.role === 'admin';
+    
+    const requestType = isAdmin ? 'admin' : (isSelf ? 'self' : 'basic');
+    const userData = getUserData(user, requestType);
+    
+    res.json(userData);
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    res.status(500).json({ message: 'Failed to fetch user profile' });
   }
 };
 
@@ -214,13 +295,9 @@ const getDeliveryPartnerStatus = async (req, res) => {
       return res.status(400).json({ message: 'Not a delivery partner account' });
     }
     
-    res.json({
-      status: user.deliveryDetails.status,
-      isVerified: user.deliveryDetails.isVerified,
-      verificationNotes: user.deliveryDetails.verificationNotes,
-      vehicleType: user.deliveryDetails.vehicleType,
-      isOnline: user.deliveryDetails.isOnline
-    });
+    // Use self permission level to get all relevant info
+    const userData = getUserData(user, 'self');
+    res.json(userData.deliveryDetails);
   } catch (error) {
     console.error('Status retrieval error:', error);
     res.status(500).json({ message: error.message });
@@ -253,6 +330,9 @@ const toggleDeliveryStatus = async (req, res) => {
     
     // Update online status
     user.deliveryDetails.isOnline = isOnline;
+    if (isOnline) {
+      user.deliveryDetails.lastActiveTime = new Date();
+    }
     await user.save();
     
     return res.status(200).json({
@@ -474,5 +554,7 @@ module.exports = {
   setDefaultAddress,
   createGuestToken,
   getDeliveryPartnerStatus,
-  toggleDeliveryStatus
+  toggleDeliveryStatus,
+  getUserPublicProfile,
+  getUserData // Export this to use in adminController
 };

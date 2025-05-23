@@ -1,9 +1,9 @@
 const express = require('express');
 const { protect, delivery } = require('../middleware/authMiddleware');
 const { 
-  getAssignedOrders,
+  // getAssignedOrders,
   getOrderDetails,
-  updateOrderStatus,
+  // updateOrderStatus,
   getCompletedOrders,
   getDeliveryStats,
   getDeliveryDashboard, 
@@ -14,7 +14,7 @@ const {
 const router = express.Router();
 
 // Get all orders assigned to the logged in delivery agent
-router.get('/orders/assigned', protect, delivery, getAssignedOrders);
+// router.get('/orders/assigned', protect, delivery, getAssignedOrders);
 
 // Get completed orders history
 router.get('/orders/completed', protect, delivery, getCompletedOrders);
@@ -26,7 +26,7 @@ router.get('/orders/pending-payments', protect, delivery, getOrdersPendingPaymen
 router.get('/orders/:id', protect, delivery, getOrderDetails);
 
 // Update order status (pickup, on the way, delivered)
-router.put('/orders/:id/status', protect, delivery, updateOrderStatus);
+// router.put('/orders/:id/status', protect, delivery, updateOrderStatus);
 
 // Add this new route
 router.put('/orders/:id/payment', protect, delivery, updateOrderPayment);

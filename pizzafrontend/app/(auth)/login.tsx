@@ -18,7 +18,7 @@ import {
   SafeAreaView
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Lock, Mail, ChevronRight, User, Eye, EyeOff, AlertCircle } from 'lucide-react-native';
+import { Lock, Mail, ChevronRight, Eye, EyeOff, AlertCircle } from 'lucide-react-native';
 import { API_URL } from '@/config';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -33,7 +33,6 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isGuestLoading, setIsGuestLoading] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -151,47 +150,6 @@ export default function LoginScreen() {
     }
   };
 
-  // In your login.tsx file - update the handleGuestLogin function
-
-  const handleGuestLogin = async () => {
-    setIsGuestLoading(true);
-
-    try {
-      // Call the backend to get a guest token
-      const response = await fetch(`${API_URL}/api/users/guest-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate guest token');
-      }
-
-      const data = await response.json();
-
-      // Dispatch to redux with isGuest flag
-      dispatch(
-        login({
-          token: data.token,
-          role: data.role || 'customer',
-          name: data.name || 'Guest User',
-          email: data.email || 'guest@example.com',
-          isGuest: true
-        })
-      );
-
-      // Navigate to the main app
-      router.replace('/(tabs)');
-    } catch (error) {
-      console.error('Guest login error:', error);
-      Alert.alert('Error', 'Unable to continue as guest. Please try again.');
-    } finally {
-      setIsGuestLoading(false);
-    }
-  };
-
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
   };
@@ -237,7 +195,7 @@ export default function LoginScreen() {
                   autoCapitalize="none"
                   value={email}
                   onChangeText={handleEmailChange}
-                  editable={!isLoading && !isGuestLoading}
+                  editable={!isLoading}
                   onFocus={() => setFocusedInput('email')}
                   onBlur={() => handleBlur('email')}
                 />
@@ -268,7 +226,7 @@ export default function LoginScreen() {
                   secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={handlePasswordChange}
-                  editable={!isLoading && !isGuestLoading}
+                  editable={!isLoading}
                   onFocus={() => setFocusedInput('password')}
                   onBlur={() => handleBlur('password')}
                 />
@@ -293,7 +251,7 @@ export default function LoginScreen() {
               {/* Forgot Password Link */}
               <TouchableOpacity
                 style={styles.forgotPassword}
-                disabled={isLoading || isGuestLoading}
+                disabled={isLoading}
               >
                 <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
               </TouchableOpacity>
@@ -305,7 +263,7 @@ export default function LoginScreen() {
                   (isLoading || (formTouched && (!!emailError || !!passwordError))) && styles.loginButtonDisabled
                 ]}
                 onPress={handleLogin}
-                disabled={isLoading || isGuestLoading || (formTouched && (!!emailError || !!passwordError))}
+                disabled={isLoading || (formTouched && (!!emailError || !!passwordError))}
                 activeOpacity={0.8}
               >
                 {isLoading ? (
@@ -318,24 +276,7 @@ export default function LoginScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* Guest Login Button */}
-              <TouchableOpacity
-                style={[styles.guestButton, isGuestLoading && styles.guestButtonDisabled]}
-                onPress={handleGuestLogin}
-                disabled={isLoading || isGuestLoading}
-                activeOpacity={0.8}
-              >
-                {isGuestLoading ? (
-                  <ActivityIndicator size="small" color="#1c1917" />
-                ) : (
-                  <View style={styles.buttonContent}>
-                    <User size={18} color="#1c1917" />
-                    <Text style={styles.guestButtonText}>Continue as Guest</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-
-              {/* Social Login Separator */}
+              {/* Sign Up Link with separator */}
               <View style={styles.separatorContainer}>
                 <View style={styles.separator} />
                 <Text style={styles.separatorText}>OR</Text>
@@ -346,7 +287,7 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={styles.signupLink}
                 onPress={() => router.push('/signup')}
-                disabled={isLoading || isGuestLoading}
+                disabled={isLoading}
               >
                 <Text style={styles.signupText}>
                   Don't have an account? <Text style={styles.signupTextBold}>Sign Up</Text>
@@ -473,7 +414,7 @@ const styles = StyleSheet.create({
     height: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 28,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -490,26 +431,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginRight: 8,
-  },
-  guestButton: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1.5,
-    borderColor: '#e5e5e5',
-    borderRadius: 16,
-    height: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-  guestButtonDisabled: {
-    backgroundColor: '#f5f5f5',
-    borderColor: '#e5e5e5',
-  },
-  guestButtonText: {
-    color: '#1c1917',
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 8,
   },
   separatorContainer: {
     flexDirection: 'row',

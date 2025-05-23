@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform } from 'react-native';
-import { User, X, Edit, Truck, ShoppingBag, Check } from 'lucide-react-native';
+import { User, X, Edit, Truck, ShoppingBag, DollarSign } from 'lucide-react-native';
 import { Order, OrderItem, AddOnOption } from '../../../admin/orders';
 
 interface OrderDetailsModalProps {
@@ -9,7 +9,9 @@ interface OrderDetailsModalProps {
   onClose: () => void;
   onUpdateStatus: () => void;
   onAssignAgent: () => void;
+  onUpdatePayment: () => void; // Added this prop
   getStatusColor: (status: string) => string;
+  getPaymentStatusColor: (status: string) => string; // Added this prop
 }
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
@@ -18,7 +20,9 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   onClose,
   onUpdateStatus,
   onAssignAgent,
+  onUpdatePayment, // Added this in the destructuring
   getStatusColor,
+  getPaymentStatusColor, // Added this in the destructuring
 }) => {
   if (!order) return null;
 
@@ -189,7 +193,11 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </View>
               <View style={styles.detailItem}>
                 <Text style={styles.detailLabel}>Payment Status:</Text>
-                <Text style={styles.detailValue}>{order.paymentStatus || 'Not available'}</Text>
+                <View style={[styles.paymentStatusBadge, { 
+                  backgroundColor: getPaymentStatusColor(order.paymentStatus || 'Pending')
+                }]}>
+                  <Text style={styles.statusText}>{order.paymentStatus || 'Pending'}</Text>
+                </View>
               </View>
             </View>
 
@@ -398,6 +406,19 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 <Text style={styles.detailsActionButtonText}>Assign Agent</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Add the update payment button */}
+            <TouchableOpacity
+              style={styles.paymentActionButton}
+              onPress={() => {
+                onClose();
+                onUpdatePayment();
+              }}
+              activeOpacity={0.8}
+            >
+              <DollarSign size={16} color="#FFF" style={{ marginRight: 8 }} />
+              <Text style={styles.detailsActionButtonText}>Update Payment Status</Text>
+            </TouchableOpacity>
           </ScrollView>
         </View>
       </View>
@@ -475,6 +496,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 50,
     alignSelf: 'flex-start',
+  },
+  paymentStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 50,
+    alignSelf: 'flex-start',
+    marginTop: 4,
   },
   statusText: {
     color: '#FFF',
@@ -691,7 +719,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   detailsActionButton: {
     flex: 1,
@@ -702,6 +730,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
     marginHorizontal: 6,
+  },
+  paymentActionButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#3498DB',
+    paddingVertical: 14,
+    borderRadius: 10,
+    marginHorizontal: 6,
+    marginBottom: 24,
   },
   detailsActionButtonText: {
     color: '#FFF',

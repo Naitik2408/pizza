@@ -2,72 +2,197 @@ const Transaction = require('../models/Transaction');
 const Order = require('../models/Order');
 const asyncHandler = require('express-async-handler');
 
-// @desc    Create a new transaction when payment is confirmed
-// @route   POST /api/transactions
-// @access  Private/Delivery
-exports.createTransaction = asyncHandler(async (req, res) => {
-  const { orderId, upiReference, notes } = req.body;
-
+/**
+ * Central function for processing order payments and optionally creating transactions
+ * @param {string} orderId - Order ID
+ * @param {Object} paymentData - Payment data to update
+ * @param {Object} user - User performing the action
+ * @param {boolean} createTransactionRecord - Whether to create a transaction record
+ * @returns {Promise<Object>} Updated order info and transaction if created
+ */
+const processOrderPayment = async (orderId, paymentData, user, createTransactionRecord = false) => {
   // Find the order
   const order = await Order.findById(orderId);
   
   if (!order) {
-    res.status(404);
-    throw new Error('Order not found');
+    const error = new Error('Order not found');
+    error.statusCode = 404;
+    throw error;
   }
 
-  // Check if this is the assigned delivery agent
-  if (order.deliveryAgent && order.deliveryAgent.toString() !== req.user._id.toString()) {
-    res.status(403);
-    throw new Error('You are not authorized to confirm this payment');
+  // Check permissions based on role
+  let isAuthorized = false;
+  let updatedBy = '';
+
+  if (user.role === 'admin') {
+    // Admins can update any order
+    isAuthorized = true;
+    updatedBy = 'admin';
+  } else if (user.role === 'delivery') {
+    // Delivery agents can only update orders assigned to them
+    if (order.deliveryAgent && order.deliveryAgent.toString() === user._id.toString()) {
+      isAuthorized = true;
+      updatedBy = 'delivery agent';
+    }
+  } else if (user.role === 'customer') {
+    // Customers can only update their own orders
+    if (order.customer && order.customer.toString() === user._id.toString()) {
+      isAuthorized = true;
+      updatedBy = 'customer';
+    }
   }
 
-  // Create transaction record
-  const transaction = await Transaction.create({
-    order: order._id,
-    orderNumber: order.orderNumber,
-    amount: order.amount,
-    paymentMethod: order.paymentMethod,
-    upiDetails: {
-      upiId: req.body.upiId || 'naitikkumar2408-1@oksbi', // Shop owner's UPI ID
-      merchantName: req.body.merchantName || 'Pizza Shop',
-      merchantCode: req.body.merchantCode || 'PIZZASHP001',
-      referenceNumber: upiReference || order.orderNumber,
-    },
-    confirmedBy: req.user._id,
-    confirmedByName: req.user.name,
-    customer: order.customer,
-    customerName: order.customerName,
-    notes: notes || 'Payment confirmed by delivery agent'
-  });
+  if (!isAuthorized) {
+    const error = new Error('Not authorized to update this order');
+    error.statusCode = 403;
+    throw error;
+  }
 
-  // Update order payment status
-  order.paymentStatus = 'Completed';
-  
-  // Add status update
+  // Extract payment data
+  const { paymentStatus, paymentMethod, paymentDetails, status, note, upiReference } = paymentData;
+
+  // Update payment status
+  if (paymentStatus) {
+    order.paymentStatus = paymentStatus;
+  }
+
+  // Update payment method if provided
+  if (paymentMethod) {
+    order.paymentMethod = paymentMethod;
+  }
+
+  // Update payment details if provided
+  if (paymentDetails) {
+    order.paymentDetails = {
+      ...order.paymentDetails,
+      ...paymentDetails,
+      updatedAt: new Date()
+    };
+  }
+
+  // If status is provided and user is delivery agent or admin, update order status too
+  if (status && ['Preparing', 'Out for delivery', 'Delivered'].includes(status) && 
+      (user.role === 'delivery' || user.role === 'admin')) {
+    order.status = status;
+  }
+
+  // Add a note to status updates
+  const statusNote = note || `Payment status updated to ${paymentStatus} by ${updatedBy}${status ? ' and status updated to ' + status : ''}`;
   order.statusUpdates.push({
     status: order.status,
-    time: new Date(),
-    note: 'Payment confirmed by delivery agent'
+    time: Date.now(),
+    note: statusNote
   });
 
-  await order.save();
+  // Save the updated order
+  const updatedOrder = await order.save();
 
-  res.status(201).json({
+  // Create transaction record if requested
+  let transaction = null;
+  if (createTransactionRecord) {
+    transaction = await Transaction.create({
+      order: order._id,
+      orderNumber: order.orderNumber,
+      amount: order.amount,
+      paymentMethod: order.paymentMethod,
+      upiDetails: {
+        upiId: paymentData.upiId || 'naitikkumar2408-1@oksbi',
+        merchantName: paymentData.merchantName || 'Pizza Shop',
+        merchantCode: paymentData.merchantCode || 'PIZZASHP001',
+        referenceNumber: upiReference || order.orderNumber,
+      },
+      confirmedBy: user._id,
+      confirmedByName: user.name,
+      customer: order.customer,
+      customerName: order.customerName,
+      notes: note || `Payment confirmed by ${updatedBy}`
+    });
+  }
+
+  return {
     success: true,
-    transaction,
     order: {
-      id: order.orderNumber,
-      _id: order._id,
-      paymentStatus: order.paymentStatus
-    }
-  });
+      id: updatedOrder.orderNumber,
+      _id: updatedOrder._id,
+      paymentStatus: updatedOrder.paymentStatus,
+      paymentMethod: updatedOrder.paymentMethod,
+      status: updatedOrder.status
+    },
+    transaction
+  };
+};
+
+// @desc    Update order payment status (unified endpoint)
+// @route   PUT /api/transactions/:orderId/payment
+// @access  Private (with role-based permissions)
+const updateOrderPayment = asyncHandler(async (req, res) => {
+  try {
+    const orderId = req.params.orderId;
+    const paymentData = {
+      paymentStatus: req.body.paymentStatus,
+      paymentMethod: req.body.paymentMethod,
+      paymentDetails: req.body.paymentDetails,
+      status: req.body.status,
+      note: req.body.note,
+      upiId: req.body.upiId,
+      merchantName: req.body.merchantName,
+      merchantCode: req.body.merchantCode,
+      upiReference: req.body.upiReference
+    };
+    
+    // Determine if we should create a transaction record
+    // Create a transaction when payment is Completed for COD/UPI payments
+    const createTransactionRecord = req.body.createTransaction || 
+                                   (paymentData.paymentStatus === 'Completed' && 
+                                   (req.user.role === 'delivery' && 
+                                   (req.body.paymentMethod === 'Cash on Delivery' || 
+                                    req.body.paymentMethod === 'UPI')));
+    
+    const result = await processOrderPayment(orderId, paymentData, req.user, createTransactionRecord);
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error updating payment status:', error);
+    
+    const statusCode = error.statusCode || 500;
+    const message = error.message || 'Failed to update payment status';
+    
+    res.status(statusCode).json({ message });
+  }
+});
+
+// @desc    Create a transaction record (legacy support)
+// @route   POST /api/transactions
+// @access  Private/Delivery
+const createTransaction = asyncHandler(async (req, res) => {
+  try {
+    const { orderId, upiReference, notes } = req.body;
+    
+    // Use the unified function with payment completion
+    const paymentData = {
+      paymentStatus: 'Completed',
+      note: notes,
+      upiReference
+    };
+    
+    // Always create transaction record for this endpoint
+    const result = await processOrderPayment(orderId, paymentData, req.user, true);
+    
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Error creating transaction:', error);
+    
+    const statusCode = error.statusCode || 500;
+    const message = error.message || 'Failed to create transaction';
+    
+    res.status(statusCode).json({ message });
+  }
 });
 
 // @desc    Get all transactions
 // @route   GET /api/transactions
 // @access  Private/Admin
-exports.getTransactions = asyncHandler(async (req, res) => {
+const getTransactions = asyncHandler(async (req, res) => {
   const pageSize = 10;
   const page = Number(req.query.page) || 1;
   
@@ -88,7 +213,7 @@ exports.getTransactions = asyncHandler(async (req, res) => {
 // @desc    Get transactions by delivery agent
 // @route   GET /api/transactions/delivery
 // @access  Private/Delivery
-exports.getDeliveryTransactions = asyncHandler(async (req, res) => {
+const getDeliveryTransactions = asyncHandler(async (req, res) => {
   const pageSize = 10;
   const page = Number(req.query.page) || 1;
   
@@ -109,7 +234,7 @@ exports.getDeliveryTransactions = asyncHandler(async (req, res) => {
 // @desc    Get transaction details
 // @route   GET /api/transactions/:id
 // @access  Private/Admin
-exports.getTransactionById = asyncHandler(async (req, res) => {
+const getTransactionById = asyncHandler(async (req, res) => {
   const transaction = await Transaction.findById(req.params.id)
     .populate('order', 'orderNumber status items amount')
     .populate('confirmedBy', 'name email')
@@ -126,7 +251,7 @@ exports.getTransactionById = asyncHandler(async (req, res) => {
 // @desc    Get transactions by date range
 // @route   GET /api/transactions/date-range
 // @access  Private/Admin
-exports.getTransactionsByDateRange = asyncHandler(async (req, res) => {
+const getTransactionsByDateRange = asyncHandler(async (req, res) => {
   const { startDate, endDate } = req.query;
   
   if (!startDate || !endDate) {
@@ -159,3 +284,16 @@ exports.getTransactionsByDateRange = asyncHandler(async (req, res) => {
     }
   });
 });
+
+module.exports = {
+  // Core functions
+  processOrderPayment,
+  updateOrderPayment,
+  createTransaction,
+  
+  // Transaction retrieval functions
+  getTransactions,
+  getDeliveryTransactions,
+  getTransactionById,
+  getTransactionsByDateRange
+};

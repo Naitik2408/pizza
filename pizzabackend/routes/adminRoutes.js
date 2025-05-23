@@ -1,8 +1,8 @@
 const express = require('express');
 const { protect, admin } = require('../middleware/authMiddleware');
 const {
-  getOrders,
-  updateOrderStatus,
+  // getOrders,
+  // updateOrderStatus,
   assignDeliveryAgent,
   getDashboardStats,
   getDeliveryAgents,
@@ -20,10 +20,10 @@ const {
 const router = express.Router();
 
 // Fetch all orders
-router.get('/orders', protect, admin, getOrders);
+// router.get('/orders', protect, admin, getOrders);
 
 // Update order status
-router.put('/orders/:id/status', protect, admin, updateOrderStatus);
+// router.put('/orders/:id/status', protect, admin, updateOrderStatus);
 
 // Assign delivery agent
 router.put('/orders/:id/assign-agent', protect, admin, assignDeliveryAgent);

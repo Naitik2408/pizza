@@ -10,9 +10,11 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Platform,
-  RefreshControl
+  RefreshControl,
+  Alert,
+  Modal
 } from 'react-native';
-import { Filter, Search, X, ShoppingBag } from 'lucide-react-native';
+import { Filter, Search, X, ShoppingBag, AlertCircle } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/redux/store';
 import { API_URL } from '@/config';
@@ -43,6 +45,8 @@ export interface OrderItem {
   addOns?: AddOnOption[];
   toppings?: AddOnOption[];
   specialInstructions?: string;
+  hasCustomizations?: boolean;
+  customizationCount?: number; // Added to match the 'admin' format
 }
 
 export interface Order {
@@ -53,10 +57,12 @@ export interface Order {
   deliveryAgent: string;
   date: string;
   time: string;
+  createdAt?: string; // Added to match baseFormat
   amount: number;
   items: OrderItem[];
   address: string;
   fullAddress?: string;
+  customerPhone?: string;
   notes: string;
   paymentMethod?: string;
   paymentStatus?: string;
@@ -65,7 +71,7 @@ export interface Order {
     time: string;
     note: string;
   }>;
-  customerPhone?: string;
+  totalItemsCount?: number; // Added to match the 'admin' format
 }
 
 interface DeliveryAgent {
@@ -73,7 +79,7 @@ interface DeliveryAgent {
   name: string;
   email: string;
   role: string;
-  isOnline?: boolean; // Added online status
+  isOnline?: boolean;
   lastSeen?: string;
 }
 
@@ -82,6 +88,28 @@ interface OrdersApiResponse {
   page: number;
   pages: number;
   total: number;
+}
+
+// Define the type for the OrderDetailsModal props
+interface OrderDetailsModalProps {
+  visible: boolean;
+  order: Order;
+  onClose: () => void;
+  onUpdateStatus: () => void;
+  onAssignAgent: () => void;
+  onUpdatePayment: () => void; // Add this prop to fix the type error
+  getStatusColor: (status: string) => string;
+  getPaymentStatusColor: (status: string) => string;
+}
+
+// Define the type for the UpdatePaymentStatusModal props
+interface UpdatePaymentStatusModalProps {
+  visible: boolean;
+  order: Order | null;
+  onClose: () => void;
+  onUpdatePaymentStatus: (status: string) => Promise<void>;
+  getPaymentStatusColor: (status: string) => string;
+  isProcessing: boolean;
 }
 
 type OrderStatus = 'Pending' | 'Preparing' | 'Out for delivery' | 'Delivered' | 'Cancelled';
@@ -124,52 +152,55 @@ const AdminOrders = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch order details');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to fetch order details');
       }
 
       const data = await response.json();
-      console.log("Raw API response:", JSON.stringify(data, null, 2));
 
-      // Transform the data to match OrderDetailsModal's expected format
+      // The response is now formatted by the backend's adminDetail formatter
       const formattedOrder: Order = {
-        id: data.orderNumber,
+        id: data.orderNumber || data.id,
         _id: data._id,
         customer: data.customerName,
         status: data.status,
         deliveryAgent: data.deliveryAgentName,
-        date: new Date(data.date).toISOString().split('T')[0],
+        date: data.date,
         time: data.time,
+        createdAt: data.createdAt,
         amount: data.amount,
         items: data.items.map((item: any): OrderItem => ({
-          name: item.name || "Unknown Item", // Add fallback
+          name: item.name || "Unknown Item",
           quantity: item.quantity || 1,
           price: item.price || 0,
           menuItemId: item.menuItemId || "",
           basePrice: item.basePrice || item.price || 0,
           size: item.size || "Regular",
           foodType: item.foodType || "Not Applicable",
-          // Include all customization details
           customizations: Array.isArray(item.customizations) ? item.customizations : [],
           addOns: Array.isArray(item.addOns) ? item.addOns : [],
           toppings: Array.isArray(item.toppings) ? item.toppings : [],
           specialInstructions: item.specialInstructions || "",
-          totalItemPrice: item.totalItemPrice || item.price || 0
+          totalItemPrice: item.totalItemPrice || item.price || 0,
+          hasCustomizations: item.hasCustomizations || false,
+          customizationCount: item.customizationCount || 0
         })),
         address: data.fullAddress,
         fullAddress: data.fullAddress,
         notes: data.notes || '',
         paymentMethod: data.paymentMethod,
         paymentStatus: data.paymentStatus,
-        customerPhone: data.customerPhone
+        customerPhone: data.customerPhone,
+        statusUpdates: data.statusUpdates || [],
+        totalItemsCount: data.totalItemsCount
       };
-
-      console.log("Formatted order:", JSON.stringify(formattedOrder, null, 2));
 
       setSelectedOrder(formattedOrder);
       setDetailsModalVisible(true);
     } catch (err) {
       console.error('Error fetching order details:', err);
-      alert('Failed to load order details. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load order details';
+      Alert.alert('Error', `${errorMessage}. Please try again.`);
     }
   };
 
@@ -211,6 +242,8 @@ const AdminOrders = () => {
         url = `${API_URL}/api/orders/search?query=${searchQuery}`;
       }
 
+      console.log('Fetching orders from:', url);
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -220,15 +253,27 @@ const AdminOrders = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch orders');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to fetch orders');
       }
 
       const data: OrdersApiResponse = await response.json();
+      console.log(`Received ${data.orders?.length || 0} orders from API`);
+
+      // Process orders to ensure they have all required fields
+      const processedOrders = data.orders.map(order => ({
+        ...order,
+        // Ensure these fields exist
+        items: Array.isArray(order.items) ? order.items : [],
+        status: order.status || 'Unknown',
+        customerPhone: order.customerPhone || 'N/A',
+        totalItemsCount: order.totalItemsCount || (order.items?.length || 0)
+      }));
 
       if (refresh || page === 1) {
-        setOrders(data.orders);
+        setOrders(processedOrders);
       } else {
-        setOrders(prev => [...prev, ...data.orders]);
+        setOrders(prev => [...prev, ...processedOrders]);
       }
 
       setCurrentPage(data.page);
@@ -236,7 +281,8 @@ const AdminOrders = () => {
       setError(null);
     } catch (err) {
       console.error('Error fetching orders:', err);
-      setError('Failed to load orders. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to load orders: ${errorMessage}`);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -257,26 +303,27 @@ const AdminOrders = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch delivery agents');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to fetch delivery agents');
       }
 
       const data = await response.json();
 
-      // You might need to add this if your backend doesn't provide the online status
-      // This is a temporary solution if your backend doesn't yet provide online status
+      // Process agents to ensure they have all required fields
       const agentsWithOnlineStatus = data.map((agent: DeliveryAgent) => ({
         ...agent,
-        isOnline: agent.isOnline !== undefined ? agent.isOnline : Math.random() > 0.5, // Random online status for demo
-        lastSeen: agent.lastSeen || new Date(Date.now() - Math.random() * 86400000 * 3).toISOString() // Random last seen time (0-3 days ago)
+        isOnline: agent.isOnline !== undefined ? agent.isOnline : Math.random() > 0.5, // Fallback for demo
+        lastSeen: agent.lastSeen || new Date(Date.now() - Math.random() * 86400000 * 3).toISOString() // Fallback for demo
       }));
 
       setDeliveryAgents(agentsWithOnlineStatus);
     } catch (err) {
       console.error('Error fetching delivery agents:', err);
+      // We don't set a global error here to avoid blocking the main UI
     }
   }, [token]);
 
-  
+  // Updated to use the unified order endpoint
   const assignDeliveryAgent = async (agentId: string | null, agentName: string) => {
     if (!token || !selectedOrder) return;
     setIsProcessing(true);
@@ -301,9 +348,10 @@ const AdminOrders = () => {
 
       const data = await response.json();
 
+      // Update both the order list and selected order with the new delivery agent info
       const updatedOrders = orders.map(order => {
         if (order._id === selectedOrder._id) {
-          return { ...order, deliveryAgent: agentName, deliveryAgentId: agentId };
+          return { ...order, deliveryAgent: agentName };
         }
         return order;
       });
@@ -314,22 +362,33 @@ const AdminOrders = () => {
         deliveryAgent: agentName
       } : null);
 
+      // Show success message
+      Alert.alert(
+        'Success',
+        `Order has been ${agentId ? 'assigned to' : 'unassigned from'} ${agentName}`,
+        [{ text: 'OK' }]
+      );
+
+      // Fetch orders again to ensure consistency with backend
       setTimeout(() => {
         fetchOrders(currentPage);
       }, 1000);
     } catch (err) {
       console.error('Error assigning delivery agent:', err);
-      alert('Failed to assign delivery agent. ' + (err instanceof Error ? err.message : 'Please try again.'));
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      Alert.alert('Error', `Failed to assign delivery agent: ${errorMessage}`);
     } finally {
       setIsProcessing(false);
     }
   };
 
+  // Updated to use the unified status update endpoint
   const updateOrderStatus = async (status: OrderStatus) => {
     if (!token || !selectedOrder) return;
     setIsProcessing(true);
 
     try {
+      // Using the unified status update endpoint
       const response = await fetch(`${API_URL}/api/orders/${selectedOrder._id}/status`, {
         method: 'PUT',
         headers: {
@@ -338,16 +397,26 @@ const AdminOrders = () => {
         },
         body: JSON.stringify({
           status,
-          note: `Status updated to ${status}`
+          note: `Status updated to ${status} by admin`
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update order status');
+        const errorData = await response.json().catch(() => ({}));
+        
+        // Handle specific error responses
+        if (response.status === 400) {
+          throw new Error(errorData.message || `Cannot update order to ${status} status`);
+        } else if (response.status === 403) {
+          throw new Error('You do not have permission to update this order');
+        } else {
+          throw new Error(errorData.message || 'Failed to update order status');
+        }
       }
 
       const data = await response.json();
 
+      // Update the local state
       const updatedOrders = orders.map(order => {
         if (order._id === selectedOrder._id) {
           return { ...order, status };
@@ -356,10 +425,89 @@ const AdminOrders = () => {
       });
 
       setOrders(updatedOrders);
-      setSelectedOrder(prevOrder => prevOrder ? { ...prevOrder, status } : null);
+      setSelectedOrder(prevOrder => prevOrder ? { 
+        ...prevOrder, 
+        status,
+        statusUpdates: prevOrder.statusUpdates ? [
+          ...prevOrder.statusUpdates,
+          {
+            status,
+            time: new Date().toISOString(),
+            note: `Status updated to ${status} by admin`
+          }
+        ] : []
+      } : null);
+      
+      // Show success message
+      Alert.alert('Success', `Order status updated to ${status}`, [{ text: 'OK' }]);
+      
     } catch (err) {
       console.error('Error updating order status:', err);
-      alert('Failed to update order status. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      Alert.alert('Error', `Failed to update order status: ${errorMessage}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // New function to update payment status
+  const updatePaymentStatus = async (paymentStatus: string) => {
+    if (!token || !selectedOrder) return;
+    setIsProcessing(true);
+
+    try {
+      // Using the new payment status update endpoint
+      const response = await fetch(`${API_URL}/api/orders/${selectedOrder._id}/payment`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          paymentStatus,
+          paymentDetails: {
+            updatedBy: 'admin',
+            updatedAt: new Date().toISOString()
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to update payment status');
+      }
+
+      const data = await response.json();
+
+      // Update the local state
+      const updatedOrders = orders.map(order => {
+        if (order._id === selectedOrder._id) {
+          return { ...order, paymentStatus };
+        }
+        return order;
+      });
+
+      setOrders(updatedOrders);
+      setSelectedOrder(prevOrder => prevOrder ? { 
+        ...prevOrder, 
+        paymentStatus,
+        statusUpdates: prevOrder.statusUpdates ? [
+          ...prevOrder.statusUpdates,
+          {
+            status: prevOrder.status,
+            time: new Date().toISOString(),
+            note: `Payment status updated to ${paymentStatus} by admin`
+          }
+        ] : []
+      } : null);
+      
+      // Show success message
+      Alert.alert('Success', `Payment status updated to ${paymentStatus}`, [{ text: 'OK' }]);
+      
+    } catch (err) {
+      console.error('Error updating payment status:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      Alert.alert('Error', `Failed to update payment status: ${errorMessage}`);
     } finally {
       setIsProcessing(false);
     }
@@ -386,13 +534,23 @@ const AdminOrders = () => {
     fetchOrders(1);
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): string => {
     switch (status) {
       case 'Pending': return '#FFA500';
       case 'Preparing': return '#3498DB';
       case 'Out for delivery': return '#9B59B6';
       case 'Delivered': return '#2ECC71';
       case 'Cancelled': return '#E74C3C';
+      default: return '#7F8C8D';
+    }
+  };
+
+  const getPaymentStatusColor = (status: string): string => {
+    switch (status) {
+      case 'Completed': return '#2ECC71';
+      case 'Failed': return '#E74C3C';
+      case 'Pending': return '#FFA500';
+      case 'Refunded': return '#3498DB';
       default: return '#7F8C8D';
     }
   };
@@ -431,6 +589,7 @@ const AdminOrders = () => {
   const [updateStatusModalVisible, setUpdateStatusModalVisible] = useState(false);
   const [assignAgentModalVisible, setAssignAgentModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [updatePaymentModalVisible, setUpdatePaymentModalVisible] = useState(false);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -508,7 +667,7 @@ const AdminOrders = () => {
             <OrderCard
               order={item}
               onPress={() => {
-                // Changed to use fetchOrderDetails instead of directly setting the order
+                // Use fetchOrderDetails to get detailed order info
                 fetchOrderDetails(item._id);
               }}
               onUpdateStatus={() => {
@@ -549,40 +708,54 @@ const AdminOrders = () => {
         />
       )}
 
-      {/* Modals */}
-      <OrderDetailsModal
-        visible={detailsModalVisible}
-        order={selectedOrder}
-        onClose={() => setDetailsModalVisible(false)}
-        onUpdateStatus={() => {
-          setDetailsModalVisible(false);
-          setUpdateStatusModalVisible(true);
-        }}
-        onAssignAgent={() => {
-          setDetailsModalVisible(false);
-          setAssignAgentModalVisible(true);
-        }}
-        getStatusColor={getStatusColor}
-      />
+      {/* Order Details Modal */}
+      {selectedOrder && (
+        <OrderDetailsModal
+          visible={detailsModalVisible}
+          order={selectedOrder}
+          onClose={() => setDetailsModalVisible(false)}
+          onUpdateStatus={() => {
+            setDetailsModalVisible(false);
+            setUpdateStatusModalVisible(true);
+          }}
+          onAssignAgent={() => {
+            setDetailsModalVisible(false);
+            setAssignAgentModalVisible(true);
+          }}
+          onUpdatePayment={() => {
+            setDetailsModalVisible(false);
+            setUpdatePaymentModalVisible(true);
+          }}
+          getStatusColor={getStatusColor}
+          getPaymentStatusColor={getPaymentStatusColor}
+        />
+      )}
 
-      <UpdateStatusModal
-        visible={updateStatusModalVisible}
-        order={selectedOrder}
-        onClose={() => setUpdateStatusModalVisible(false)}
-        onUpdateStatus={updateOrderStatus}
-        getStatusColor={getStatusColor}
-        isProcessing={isProcessing}
-      />
+      {/* Update Status Modal */}
+      {selectedOrder && (
+        <UpdateStatusModal
+          visible={updateStatusModalVisible}
+          order={selectedOrder}
+          onClose={() => setUpdateStatusModalVisible(false)}
+          onUpdateStatus={updateOrderStatus}
+          getStatusColor={getStatusColor}
+          isProcessing={isProcessing}
+        />
+      )}
 
-      <AssignAgentModal
-        visible={assignAgentModalVisible}
-        order={selectedOrder}
-        deliveryAgents={deliveryAgents}
-        onClose={() => setAssignAgentModalVisible(false)}
-        onAssignAgent={assignDeliveryAgent}
-        isProcessing={isProcessing}
-      />
+      {/* Assign Agent Modal */}
+      {selectedOrder && (
+        <AssignAgentModal
+          visible={assignAgentModalVisible}
+          order={selectedOrder}
+          deliveryAgents={deliveryAgents}
+          onClose={() => setAssignAgentModalVisible(false)}
+          onAssignAgent={assignDeliveryAgent}
+          isProcessing={isProcessing}
+        />
+      )}
 
+      {/* Filter Modal */}
       <FilterModal
         visible={filterModalVisible}
         filters={filters}
@@ -594,7 +767,109 @@ const AdminOrders = () => {
         onFilterChange={(filterType, value) => setFilters({ ...filters, [filterType]: value })}
         getStatusColor={getStatusColor}
       />
+
+      {/* Payment Status Modal */}
+      {selectedOrder && (
+        <UpdatePaymentStatusModal
+          visible={updatePaymentModalVisible}
+          order={selectedOrder}
+          onClose={() => setUpdatePaymentModalVisible(false)}
+          onUpdatePaymentStatus={updatePaymentStatus}
+          getPaymentStatusColor={getPaymentStatusColor}
+          isProcessing={isProcessing}
+        />
+      )}
     </SafeAreaView>
+  );
+};
+
+// Create a new component for updating payment status with proper types
+const UpdatePaymentStatusModal = ({ 
+  visible, 
+  order, 
+  onClose, 
+  onUpdatePaymentStatus, 
+  getPaymentStatusColor,
+  isProcessing 
+}: UpdatePaymentStatusModalProps) => {
+  const paymentStatusOptions = ['Pending', 'Completed', 'Failed', 'Refunded'];
+  
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={modalStyles.centeredView}>
+        <View style={modalStyles.modalView}>
+          <View style={modalStyles.modalHeader}>
+            <Text style={modalStyles.modalTitle}>Update Payment Status</Text>
+            <TouchableOpacity onPress={onClose} disabled={isProcessing}>
+              <X size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          
+          <Text style={modalStyles.orderInfo}>
+            Order #{order?.id}
+            {order?.paymentMethod ? ` • ${order.paymentMethod}` : ''}
+          </Text>
+
+          <Text style={modalStyles.currentStatus}>
+            Current payment status: 
+            <Text style={{ 
+              color: getPaymentStatusColor(order?.paymentStatus || 'Pending'),
+              fontWeight: 'bold'
+            }}>
+              {' '}{order?.paymentStatus || 'Pending'}
+            </Text>
+          </Text>
+          
+          <View style={modalStyles.divider} />
+          
+          <Text style={modalStyles.sectionTitle}>Select new payment status</Text>
+          
+          {isProcessing ? (
+            <View style={modalStyles.loadingContainer}>
+              <ActivityIndicator size="large" color="#FF6B00" />
+              <Text style={modalStyles.loadingText}>Updating payment status...</Text>
+            </View>
+          ) : (
+            <>
+              <ScrollView style={modalStyles.optionsContainer}>
+                {paymentStatusOptions.map((status) => (
+                  <TouchableOpacity
+                    key={status}
+                    style={[
+                      modalStyles.statusOption,
+                      { borderColor: getPaymentStatusColor(status) }
+                    ]}
+                    onPress={() => onUpdatePaymentStatus(status)}
+                    disabled={status === order?.paymentStatus}
+                  >
+                    <View style={[
+                      modalStyles.statusDot,
+                      { backgroundColor: getPaymentStatusColor(status) }
+                    ]} />
+                    <Text style={modalStyles.statusText}>{status}</Text>
+                    {status === order?.paymentStatus && (
+                      <Text style={modalStyles.currentText}>(Current)</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              
+              <TouchableOpacity
+                style={modalStyles.closeButton}
+                onPress={onClose}
+              >
+                <Text style={modalStyles.closeButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 };
 
@@ -761,6 +1036,112 @@ const styles = StyleSheet.create({
   resetSearchButtonText: {
     color: '#666',
     fontWeight: '500',
+  },
+});
+
+const modalStyles = StyleSheet.create({
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalView: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  orderInfo: {
+    fontSize: 16,
+    color: '#555',
+    marginBottom: 8,
+  },
+  currentStatus: {
+    fontSize: 16,
+    color: '#555',
+    marginBottom: 16,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    marginVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  optionsContainer: {
+    maxHeight: 280,
+    marginBottom: 16,
+  },
+  statusOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderWidth: 1,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 10,
+  },
+  statusText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  currentText: {
+    fontSize: 14,
+    color: '#888',
+    fontStyle: 'italic',
+  },
+  closeButton: {
+    backgroundColor: '#F0F0F0',
+    padding: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  closeButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
   },
 });
 

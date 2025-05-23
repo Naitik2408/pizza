@@ -26,16 +26,26 @@ interface OrderItem {
   size?: string;
   foodType?: string;
   image?: string;
+  basePrice?: number;
+  totalItemPrice?: number;
   customizations?: Array<{
     name: string;
     option: string;
     price: number;
   }>;
   addOns?: Array<{
-    id: string;
     name: string;
+    option?: string;
     price: number;
   }>;
+  toppings?: Array<{
+    name: string;
+    option?: string;
+    price: number;
+  }>;
+  specialInstructions?: string;
+  hasCustomizations?: boolean;
+  totalPrice?: number;
 }
 
 // Define interface for status update
@@ -57,9 +67,11 @@ interface Address {
 // Define interface for order
 interface Order {
   _id: string;
+  id?: string;
   orderNumber: string;
   date: string;
   time: string;
+  createdAt: string;
   status: string;
   items: OrderItem[];
   amount: number;
@@ -77,8 +89,15 @@ interface Order {
   paymentMethod: string;
   paymentStatus: string;
   statusUpdates: StatusUpdate[];
-  createdAt: string;
   notes?: string;
+  subTotal?: number;
+  tax?: number;
+  deliveryFee?: number;
+  discounts?: {
+    code: string;
+    amount: number;
+    percentage?: number;
+  };
 }
 
 export default function OrdersScreen() {
@@ -148,6 +167,7 @@ export default function OrdersScreen() {
       setError(null);
       if (!refreshing) setLoading(true);
 
+      console.log('Fetching orders from API...');
       const response = await fetch(`${API_URL}/api/orders/my-orders`, {
         method: 'GET',
         headers: {
@@ -157,57 +177,65 @@ export default function OrdersScreen() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch orders');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to fetch orders');
       }
 
       const data = await response.json();
+      console.log(`Received ${data.length || 0} orders from API`);
+
+      // Ensure we're handling both array and paginated response formats
+      const ordersArray = Array.isArray(data) ? data : (data.orders || []);
 
       // Filter orders into current and past orders
-      const currentOrdersData = data.filter((order: Order) =>
+      const currentOrdersData = ordersArray.filter((order: Order) =>
         order.status !== 'Delivered' && order.status !== 'Cancelled'
       );
 
-      const pastOrdersData = data.filter((order: Order) =>
+      const pastOrdersData = ordersArray.filter((order: Order) =>
         order.status === 'Delivered' || order.status === 'Cancelled'
       );
 
-      // Ensure items have proper customization array structure
-      currentOrdersData.forEach((order: Order) => {
-        order.items.forEach((item: OrderItem) => {
-          if (!Array.isArray(item.customizations)) {
-            item.customizations = [];
-          }
-          if (!Array.isArray(item.addOns)) {
-            item.addOns = [];
-          }
-        });
-      });
+      // Process orders to ensure all fields are present
+      const processOrders = (orders: Order[]) => orders.map((order: Order) => ({
+        ...order,
+        // Make sure any nested arrays exist
+        items: (order.items || []).map((item: OrderItem) => ({
+          ...item,
+          customizations: Array.isArray(item.customizations) ? item.customizations : [],
+          addOns: Array.isArray(item.addOns) ? item.addOns : [],
+          toppings: Array.isArray(item.toppings) ? item.toppings : [],
+          // Calculate total price if not provided
+          totalPrice: item.totalPrice || (item.totalItemPrice || item.price) * item.quantity,
+          // Make sure hasCustomizations is set
+          hasCustomizations: item.hasCustomizations || !!(
+            (item.customizations && item.customizations.length) ||
+            (item.addOns && item.addOns.length) ||
+            (item.toppings && item.toppings.length) ||
+            item.specialInstructions
+          )
+        })),
+        // Make sure statusUpdates is an array
+        statusUpdates: Array.isArray(order.statusUpdates) ? order.statusUpdates : [],
+        // Handle id vs orderNumber difference
+        orderNumber: order.orderNumber || order.id || 'N/A'
+      }));
 
-      pastOrdersData.forEach((order: Order) => {
-        order.items.forEach((item: OrderItem) => {
-          if (!Array.isArray(item.customizations)) {
-            item.customizations = [];
-          }
-          if (!Array.isArray(item.addOns)) {
-            item.addOns = [];
-          }
-        });
-      });
-
-      // Update state with the fetched orders
-      setCurrentOrders(currentOrdersData);
-      setPastOrders(pastOrdersData);
+      // Update state with the processed orders
+      setCurrentOrders(processOrders(currentOrdersData));
+      setPastOrders(processOrders(pastOrdersData));
 
     } catch (err) {
       console.error('Error fetching orders:', err);
-      setError('Failed to load your orders. Please try again.');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Failed to load your orders: ${errorMessage}`);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token, router, refreshing, isGuest]);
+  }, [token, refreshing, isGuest]);
 
-  // Add this function to your component
+  // Function to refresh orders
   const onRefresh = useCallback(() => {
     if (isGuest) return; // Don't refresh for guest users
 
@@ -240,6 +268,22 @@ export default function OrdersScreen() {
     }
   };
 
+  // Get color for payment status
+  const getPaymentStatusColor = (status: string): string => {
+    switch (status) {
+      case 'Completed':
+        return '#4CAF50';
+      case 'Failed':
+        return '#F44336';
+      case 'Pending':
+        return '#FFA500';
+      case 'Refunded':
+        return '#2196F3';
+      default:
+        return '#FFA500';
+    }
+  };
+
   // Toggle order details
   const toggleOrderDetails = (orderId: string): void => {
     setExpandedOrder(expandedOrder === orderId ? null : orderId);
@@ -247,31 +291,38 @@ export default function OrdersScreen() {
 
   // Format date for display
   const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    const today = new Date();
+    if (!dateString) return 'Unknown date';
+    
+    try {
+      const date = new Date(dateString);
+      const today = new Date();
 
-    if (
-      date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
-    ) {
-      // Format as "Today, HH:MM AM/PM"
-      return `Today, ${new Date(dateString).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: 'numeric',
-        hour12: true
-      })}`;
-    } else {
-      // Format as "MMM DD, YYYY"
-      return new Date(dateString).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
+      if (
+        date.getDate() === today.getDate() &&
+        date.getMonth() === today.getMonth() &&
+        date.getFullYear() === today.getFullYear()
+      ) {
+        // Format as "Today, HH:MM AM/PM"
+        return `Today, ${date.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: 'numeric',
+          hour12: true
+        })}`;
+      } else {
+        // Format as "MMM DD, YYYY"
+        return date.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        });
+      }
+    } catch (e) {
+      console.error('Error formatting date:', e);
+      return 'Invalid date';
     }
   };
 
-  // Cancel an order
+  // Cancel an order - updated to use the unified status update endpoint
   const handleCancelOrder = async (orderId: string) => {
     Alert.alert(
       'Cancel Order',
@@ -286,17 +337,30 @@ export default function OrdersScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const response = await fetch(`${API_URL}/api/orders/my-orders/${orderId}/cancel`, {
+              // Use the unified status update endpoint
+              const response = await fetch(`${API_URL}/api/orders/${orderId}/status`, {
                 method: 'PUT',
                 headers: {
                   'Content-Type': 'application/json',
                   'Authorization': `Bearer ${token}`
-                }
+                },
+                body: JSON.stringify({
+                  status: 'Cancelled',
+                  note: 'Cancelled by customer through app'
+                })
               });
 
               if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to cancel order');
+                
+                // Handle specific error codes
+                if (response.status === 400) {
+                  throw new Error(errorData.message || 'Order cannot be cancelled at this stage');
+                } else if (response.status === 403) {
+                  throw new Error(errorData.message || 'You are not authorized to cancel this order');
+                } else {
+                  throw new Error(errorData.message || 'Failed to cancel order');
+                }
               }
 
               // Show success message
@@ -407,20 +471,35 @@ export default function OrdersScreen() {
               Add-ons: {item.addOns.map(addon => addon.name).join(', ')}
             </Text>
           )}
+          
+          {/* Display toppings if available */}
+          {item.toppings && item.toppings.length > 0 && (
+            <Text style={styles.itemCustomizations}>
+              Toppings: {item.toppings.map(topping => topping.name).join(', ')}
+            </Text>
+          )}
+          
+          {/* Display special instructions if available */}
+          {item.specialInstructions && (
+            <Text style={styles.itemCustomizations}>
+              Instructions: {item.specialInstructions}
+            </Text>
+          )}
         </View>
-        <Text style={styles.itemPrice}>₹{item.price.toFixed(2)}</Text>
+        <Text style={styles.itemPrice}>₹{(item.totalPrice || (item.price * item.quantity)).toFixed(2)}</Text>
       </View>
     ));
   };
 
   // Render invoice details
   const renderInvoice = (order: Order): JSX.Element => {
-    // Calculate subtotal from items
-    const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-    // Estimate tax and delivery fee
-    const tax = order.amount * 0.05; // Assume 5% tax
-    const deliveryFee = order.amount - subtotal - tax;
+    // Use order's specific breakdown if available, otherwise estimate
+    const subtotal = order.subTotal || order.items.reduce((sum, item) => 
+      sum + ((item.totalItemPrice || item.price) * item.quantity), 0);
+    
+    const tax = order.tax || (order.amount * 0.05); // Use provided tax or estimate at 5%
+    const deliveryFee = order.deliveryFee || (order.amount - subtotal - tax);
+    const discount = order.discounts?.amount || 0;
 
     return (
       <View style={styles.invoiceContainer}>
@@ -441,6 +520,13 @@ export default function OrdersScreen() {
           <Text>₹{deliveryFee >= 0 ? deliveryFee.toFixed(2) : '0.00'}</Text>
         </View>
 
+        {discount > 0 && (
+          <View style={styles.invoiceRow}>
+            <Text style={{ color: '#F97316' }}>Discount{order.discounts?.code ? ` (${order.discounts.code})` : ''}</Text>
+            <Text style={{ color: '#F97316' }}>-₹{discount.toFixed(2)}</Text>
+          </View>
+        )}
+
         <View style={[styles.invoiceRow, styles.totalRow]}>
           <Text style={styles.totalText}>Total</Text>
           <Text style={styles.totalPrice}>₹{order.amount.toFixed(2)}</Text>
@@ -448,13 +534,15 @@ export default function OrdersScreen() {
 
         <View style={styles.paymentMethod}>
           <Text style={styles.paymentTitle}>Payment Method</Text>
-          <Text>{order.paymentMethod}</Text>
-          <Text style={[
-            styles.paymentStatus,
-            { color: order.paymentStatus === 'Completed' ? '#4CAF50' : '#FFA500' }
-          ]}>
-            {order.paymentStatus}
-          </Text>
+          <View style={styles.paymentRow}>
+            <Text>{order.paymentMethod}</Text>
+            <Text style={[
+              styles.paymentStatus,
+              { color: getPaymentStatusColor(order.paymentStatus) }
+            ]}>
+              {order.paymentStatus}
+            </Text>
+          </View>
         </View>
       </View>
     );
@@ -483,7 +571,22 @@ export default function OrdersScreen() {
             <Text style={styles.agentName}>{agent.name || 'Delivery Agent'}</Text>
             <Text style={styles.agentPhone}>{agent.phone || 'Contact not available'}</Text>
           </View>
-          <TouchableOpacity style={styles.callButton}>
+          <TouchableOpacity 
+            style={styles.callButton}
+            onPress={() => {
+              // Handle calling the delivery agent
+              if (agent.phone) {
+                // Use linking to open phone app
+                // Linking.openURL(`tel:${agent.phone}`);
+                Alert.alert('Call Agent', `Call ${agent.name} at ${agent.phone}?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Call', onPress: () => {} }
+                ]);
+              } else {
+                Alert.alert('Contact Unavailable', 'Delivery agent contact information is not available.');
+              }
+            }}
+          >
             <Text style={styles.callButtonText}>Call</Text>
           </TouchableOpacity>
         </View>
@@ -502,7 +605,10 @@ export default function OrdersScreen() {
         <Text style={styles.sectionTitle}>Order Status</Text>
         {statusUpdates.map((update, index) => (
           <View key={index} style={styles.timelineItem}>
-            <View style={styles.timelineDot} />
+            <View style={[
+              styles.timelineDot, 
+              { backgroundColor: getStatusColor(update.status) }
+            ]} />
             {index !== statusUpdates.length - 1 && <View style={styles.timelineLine} />}
             <View style={styles.timelineContent}>
               <Text style={styles.timelineStatus}>{update.status}</Text>
@@ -588,7 +694,7 @@ export default function OrdersScreen() {
           <Clock size={16} color="#666" />
           <Text style={styles.deliveryTimeText}>
             {order.estimatedDeliveryTime
-              ? `Estimated delivery: ${order.estimatedDeliveryTime}`
+              ? `Estimated delivery: ${formatDate(order.estimatedDeliveryTime)}`
               : 'Processing your order...'}
           </Text>
         </View>
@@ -1140,6 +1246,12 @@ const styles = StyleSheet.create({
   paymentMethod: {
     marginTop: 16,
   },
+  paymentRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
   paymentTitle: {
     fontSize: 14,
     fontWeight: '500',
@@ -1148,7 +1260,6 @@ const styles = StyleSheet.create({
   },
   paymentStatus: {
     fontSize: 13,
-    marginTop: 4,
     fontWeight: '500',
   },
   pastOrderActions: {

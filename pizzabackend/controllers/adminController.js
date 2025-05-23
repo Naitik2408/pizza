@@ -1,91 +1,16 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
 const MenuItem = require('../models/MenuItem');
+const Offer = require('../models/Offer');
+// Import the getUserData function from userController
+const { getUserData } = require('./userController');
+// Import the assignDeliveryAgent function from orderController
+const { assignDeliveryAgent: assignDeliveryAgentToOrder } = require('./orderController');
 
-// Fetch all orders
-const getOrders = async (req, res) => {
-  try {
-    const orders = await Order.find().populate('customer').populate('deliveryAgent');
-    res.json(orders);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Update order status
-const updateOrderStatus = async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  try {
-    const order = await Order.findById(id);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-
-    order.status = status;
-    await order.save();
-    res.json(order);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Assign delivery agent
+// Remove the duplicated function and create a wrapper that uses the orderController implementation
 const assignDeliveryAgent = async (req, res) => {
-  const { id } = req.params;
-  const { deliveryAgent, deliveryAgentName } = req.body;
-
-  try {
-    const order = await Order.findById(id);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-
-    // Update both the delivery agent ID and name
-    if (!deliveryAgent || deliveryAgent === null) {
-      // If no agent ID provided, mark as unassigned
-      order.deliveryAgent = null;
-      order.deliveryAgentName = 'Unassigned';
-
-      // Add status update entry
-      order.statusUpdates.push({
-        status: order.status,
-        time: new Date(),
-        note: 'Delivery agent unassigned'
-      });
-    } else {
-      // Verify the agent exists
-      const agent = await User.findById(deliveryAgent);
-      if (!agent) {
-        return res.status(400).json({ message: 'Delivery agent not found' });
-      }
-
-      // Update both ID and name fields
-      order.deliveryAgent = deliveryAgent;
-      order.deliveryAgentName = deliveryAgentName || agent.name;
-
-      // Add status update entry
-      order.statusUpdates.push({
-        status: order.status,
-        time: new Date(),
-        note: `Assigned to delivery agent: ${order.deliveryAgentName}`
-      });
-    }
-
-    const updatedOrder = await order.save();
-
-    console.log(`Order ${id} assigned to agent: ${updatedOrder.deliveryAgentName} (ID: ${updatedOrder.deliveryAgent || 'null'})`);
-
-    res.json({
-      success: true,
-      message: 'Delivery agent assigned successfully',
-      order: {
-        _id: updatedOrder._id,
-        deliveryAgent: updatedOrder.deliveryAgent,
-        deliveryAgentName: updatedOrder.deliveryAgentName
-      }
-    });
-  } catch (error) {
-    console.error('Error assigning delivery agent:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
+  // Simply call the implementation from orderController
+  return assignDeliveryAgentToOrder(req, res);
 };
 
 // Fetch dashboard statistics
@@ -427,7 +352,11 @@ const getDashboardStats = async (req, res) => {
 const getDeliveryAgents = async (req, res) => {
   try {
     const deliveryAgents = await User.find({ role: 'delivery' }).select('-password');
-    res.json(deliveryAgents);
+    
+    // Use the getUserData function to format each delivery agent
+    const formattedAgents = deliveryAgents.map(agent => getUserData(agent, 'admin'));
+    
+    res.json(formattedAgents);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -465,15 +394,16 @@ const getAssignedOrders = async (req, res) => {
   }
 };
 
-
-// Add these functions to your existing adminController.js file
-
-// Get all users
+// Get all users - updated to use getUserData
 const getAllUsers = async (req, res) => {
   try {
     // Exclude password field for security
     const users = await User.find().select('-password');
-    res.json(users);
+    
+    // Use the shared function to format each user with admin permissions
+    const formattedUsers = users.map(user => getUserData(user, 'admin'));
+    
+    res.json(formattedUsers);
   } catch (error) {
     console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Failed to fetch users' });
@@ -511,21 +441,14 @@ const updateUserRole = async (req, res) => {
     user.role = role;
     await user.save();
 
-    // Return updated user without password
+    // Return updated user using getUserData for consistent formatting
     const updatedUser = await User.findById(id).select('-password');
-    res.json(updatedUser);
+    res.json(getUserData(updatedUser, 'admin'));
   } catch (error) {
     console.error('Error updating user role:', error);
     res.status(500).json({ message: 'Failed to update user role' });
   }
 };
-
-
-
-// Add these to adminController.js
-// filepath: /home/naitik2408/Contribution/pizza/pizzabackend/controllers/adminController.js
-
-const Offer = require('../models/Offer');
 
 // Get all offers
 const getOffers = async (req, res) => {
@@ -617,7 +540,7 @@ const updateOffer = async (req, res) => {
   }
 };
 
-// Delete offer - updated method
+// Delete offer
 const deleteOffer = async (req, res) => {
   try {
     const deletedOffer = await Offer.findByIdAndDelete(req.params.id);
@@ -633,8 +556,7 @@ const deleteOffer = async (req, res) => {
   }
 };
 
-
-// Get user by ID
+// Get user by ID - updated to use getUserData
 const getUserById = async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
@@ -643,38 +565,16 @@ const getUserById = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    // Return user with appropriate details
-    if (user.role === 'delivery') {
-      // For delivery agents, include their specific details
-      return res.json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-        deliveryDetails: {
-          vehicleType: user.deliveryDetails.vehicleType,
-          aadharCard: user.deliveryDetails.aadharCard,
-          drivingLicense: user.deliveryDetails.drivingLicense,
-          isVerified: user.deliveryDetails.isVerified,
-          status: user.deliveryDetails.status,
-          verificationNotes: user.deliveryDetails.verificationNotes,
-          isOnline: user.deliveryDetails.isOnline,
-          lastActiveTime: user.deliveryDetails.lastActiveTime
-        }
-      });
-    } else {
-      // For other users, return general info
-      return res.json(user);
-    }
+    // Use the shared getUserData function with admin permissions
+    const userData = getUserData(user, 'admin');
+    return res.json(userData);
   } catch (error) {
     console.error('Error fetching user details:', error);
     res.status(500).json({ message: 'Failed to fetch user details' });
   }
 };
 
-// Update delivery partner verification status
+// Update delivery partner verification status - updated to use getUserData
 const updateDeliveryVerification = async (req, res) => {
   try {
     const { status, verificationNotes } = req.body;
@@ -704,34 +604,17 @@ const updateDeliveryVerification = async (req, res) => {
     
     await user.save();
     
-    // Return updated user
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      deliveryDetails: {
-        vehicleType: user.deliveryDetails.vehicleType,
-        aadharCard: user.deliveryDetails.aadharCard,
-        drivingLicense: user.deliveryDetails.drivingLicense,
-        isVerified: user.deliveryDetails.isVerified,
-        status: user.deliveryDetails.status,
-        verificationNotes: user.deliveryDetails.verificationNotes,
-        isOnline: user.deliveryDetails.isOnline
-      }
-    });
+    // Use the shared function to return consistent user data
+    const userData = getUserData(user, 'admin');
+    res.json(userData);
   } catch (error) {
     console.error('Error updating verification status:', error);
     res.status(500).json({ message: 'Failed to update verification status' });
   }
 };
 
-// Update the module exports to include the new functions
+// Update the module exports to include the unified assignDeliveryAgent function
 module.exports = {
-  getOrders,
-  updateOrderStatus,
   assignDeliveryAgent,
   getDashboardStats,
   getDeliveryAgents,

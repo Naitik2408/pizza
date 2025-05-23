@@ -11,7 +11,8 @@ const {
   setDefaultAddress,
   createGuestToken,
   getDeliveryPartnerStatus,
-  toggleDeliveryStatus
+  toggleDeliveryStatus,
+  getUserPublicProfile // Add this new function
 } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 const router = express.Router();
@@ -22,6 +23,9 @@ router.post('/login', loginUser);
 router.get('/profile', protect, getUserProfile);
 router.post('/logout', protect, logoutUser);
 router.post('/guest-token', createGuestToken);
+
+// Add new route for getting public profile by ID
+router.get('/profile/:userId', protect, getUserPublicProfile);
 
 // Address routes
 router.get('/addresses', protect, getUserAddresses);
