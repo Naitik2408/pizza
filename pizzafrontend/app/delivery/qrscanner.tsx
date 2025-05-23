@@ -25,9 +25,30 @@ import { API_URL } from '@/config';
 // Define shop owner payment details interface
 interface PaymentDetails {
   upiId: string;
-  paymentLink: string;
+  paymentLink?: string;
   merchantName: string;
-  merchantCode: string;
+  merchantCode?: string;
+}
+
+// Define business settings interface
+interface BusinessSettings {
+  upiId: string;
+  bankDetails: {
+    accountName: string;
+    accountNumber: string;
+    ifscCode: string;
+    bankName: string;
+  };
+  deliveryCharges: {
+    baseCharge: number;
+    perKmCharge: number;
+    freeDeliveryThreshold: number;
+  };
+  taxSettings: {
+    gstPercentage: number;
+    applyGST: boolean;
+  };
+  minimumOrderValue: number;
 }
 
 // Define pending payment order interface
@@ -40,14 +61,6 @@ interface PendingPaymentOrder {
   time?: string;
 }
 
-// Fixed shop owner payment details - never changes
-const SHOP_PAYMENT_DETAILS: PaymentDetails = {
-  upiId: 'naitikkumar2408-1@oksbi',
-  paymentLink: 'https://pay.pizzashop.com/pay',
-  merchantName: 'Pizza Shop',
-  merchantCode: 'PIZZASHP001'
-};
-
 const QRPaymentScreen = () => {
   const router = useRouter();
   const { token, name, email } = useSelector((state: RootState) => state.auth);
@@ -56,6 +69,18 @@ const QRPaymentScreen = () => {
   const [lastRefresh, setLastRefresh] = useState(Date.now());
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [pendingPaymentOrders, setPendingPaymentOrders] = useState<PendingPaymentOrder[]>([]);
+  const [businessSettingsLoading, setBusinessSettingsLoading] = useState(true);
+
+  // Business settings state
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
+
+  // Shop payment details derived from business settings
+  const [shopPaymentDetails, setShopPaymentDetails] = useState<PaymentDetails>({
+    upiId: 'default@upi',
+    merchantName: 'Pizza Shop',
+    merchantCode: 'PIZZASHP001',
+    paymentLink: 'https://pay.pizzashop.com/pay'
+  });
 
   // Payment details state for current order
   const [paymentDetails, setPaymentDetails] = useState({
@@ -65,14 +90,52 @@ const QRPaymentScreen = () => {
     customerName: '',
   });
 
+  // Fetch business settings from API
+  const fetchBusinessSettings = useCallback(async () => {
+    if (!token) return;
+
+    try {
+      setBusinessSettingsLoading(true);
+
+      const response = await fetch(`${API_URL}/api/settings`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch business settings');
+      }
+
+      const data = await response.json();
+      setBusinessSettings(data);
+      
+      // Update shop payment details based on fetched settings
+      setShopPaymentDetails({
+        upiId: data.upiId,
+        merchantName: data.bankDetails.accountName,
+        merchantCode: 'PIZZASHP001', // You might want to store this in the business settings too
+        paymentLink: 'https://pay.pizzashop.com/pay' // This could also be stored in business settings
+      });
+
+    } catch (error) {
+      console.error('Error fetching business settings:', error);
+      // Keep using default values if fetch fails
+    } finally {
+      setBusinessSettingsLoading(false);
+    }
+  }, [token]);
+
   // Generate UPI QR code URL based on order details
   const getQRCodeUrl = useCallback(() => {
     // Create UPI deep link with payment details using shop owner's UPI
-    const upiLink = `upi://pay?pa=${SHOP_PAYMENT_DETAILS.upiId}&pn=${encodeURIComponent(SHOP_PAYMENT_DETAILS.merchantName)}&am=${paymentDetails.amount.toFixed(2)}&cu=INR&tn=${paymentDetails.orderId}&mc=${SHOP_PAYMENT_DETAILS.merchantCode}`;
+    const upiLink = `upi://pay?pa=${shopPaymentDetails.upiId}&pn=${encodeURIComponent(shopPaymentDetails.merchantName)}&am=${paymentDetails.amount.toFixed(2)}&cu=INR&tn=${paymentDetails.orderId}&mc=${shopPaymentDetails.merchantCode || 'PIZZASHP001'}`;
 
     // Use QR code generator API with timestamp to ensure fresh QR on each refresh
     return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiLink)}&t=${lastRefresh}`;
-  }, [paymentDetails, lastRefresh]);
+  }, [paymentDetails, lastRefresh, shopPaymentDetails]);
 
   // Fetch pending payment orders from API
   const fetchPendingPaymentOrders = useCallback(async () => {
@@ -142,7 +205,7 @@ const QRPaymentScreen = () => {
 
   // Copy UPI ID to clipboard
   const copyUpiId = async () => {
-    await Clipboard.setStringAsync(SHOP_PAYMENT_DETAILS.upiId);
+    await Clipboard.setStringAsync(shopPaymentDetails.upiId);
 
     // Haptic feedback when copied
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -154,8 +217,8 @@ const QRPaymentScreen = () => {
   const sharePaymentDetails = async () => {
     try {
       await Share.share({
-        message: `Payment for ${SHOP_PAYMENT_DETAILS.merchantName} 🍕\n\nAmount: ₹${paymentDetails.amount.toFixed(2)}\nUPI ID: ${SHOP_PAYMENT_DETAILS.upiId}\nReference: ${paymentDetails.orderId}\nPayment Link: ${SHOP_PAYMENT_DETAILS.paymentLink}`,
-        title: `${SHOP_PAYMENT_DETAILS.merchantName} Payment`
+        message: `Payment for ${shopPaymentDetails.merchantName} 🍕\n\nAmount: ₹${paymentDetails.amount.toFixed(2)}\nUPI ID: ${shopPaymentDetails.upiId}\nReference: ${paymentDetails.orderId}\nPayment Link: ${shopPaymentDetails.paymentLink || ''}`,
+        title: `${shopPaymentDetails.merchantName} Payment`
       });
     } catch (error) {
       Alert.alert('Error', 'Failed to share payment details');
@@ -165,7 +228,7 @@ const QRPaymentScreen = () => {
   // Open UPI app directly (if supported by device)
   const openUpiApp = async () => {
     try {
-      const upiUrl = `upi://pay?pa=${SHOP_PAYMENT_DETAILS.upiId}&pn=${encodeURIComponent(SHOP_PAYMENT_DETAILS.merchantName)}&am=${paymentDetails.amount.toFixed(2)}&cu=INR&tn=${paymentDetails.orderId}`;
+      const upiUrl = `upi://pay?pa=${shopPaymentDetails.upiId}&pn=${encodeURIComponent(shopPaymentDetails.merchantName)}&am=${paymentDetails.amount.toFixed(2)}&cu=INR&tn=${paymentDetails.orderId}`;
 
       const canOpen = await Linking.canOpenURL(upiUrl);
       if (canOpen) {
@@ -192,8 +255,7 @@ const QRPaymentScreen = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
-  // Update in qrscanner.tsx
-  // Update in qrscanner.tsx
+  // Confirm payment
   const confirmPayment = async () => {
     if (!paymentDetails._id) {
       Alert.alert('Error', 'Invalid order selected');
@@ -223,7 +285,7 @@ const QRPaymentScreen = () => {
         throw new Error(errorData.message || 'Failed to update payment status');
       }
 
-      // Then create a transaction record
+      // Then create a transaction record with the actual business UPI ID
       const transactionResponse = await fetch(`${API_URL}/api/transactions`, {
         method: 'POST',
         headers: {
@@ -232,9 +294,9 @@ const QRPaymentScreen = () => {
         },
         body: JSON.stringify({
           orderId: paymentDetails._id,
-          upiId: SHOP_PAYMENT_DETAILS.upiId,
-          merchantName: SHOP_PAYMENT_DETAILS.merchantName,
-          merchantCode: SHOP_PAYMENT_DETAILS.merchantCode,
+          upiId: shopPaymentDetails.upiId,
+          merchantName: shopPaymentDetails.merchantName,
+          merchantCode: shopPaymentDetails.merchantCode || 'PIZZASHP001',
           upiReference: paymentDetails.orderId, // Using order ID as reference
           notes: `Payment confirmed and delivery completed for order #${paymentDetails.orderId}`
         })
@@ -265,10 +327,15 @@ const QRPaymentScreen = () => {
     }
   };
 
-  // Load orders on component mount
+  // Load business settings and orders on component mount
   useEffect(() => {
-    fetchPendingPaymentOrders();
-  }, [fetchPendingPaymentOrders]);
+    const loadInitialData = async () => {
+      await fetchBusinessSettings();
+      await fetchPendingPaymentOrders();
+    };
+    
+    loadInitialData();
+  }, [fetchBusinessSettings, fetchPendingPaymentOrders]);
 
   // Handle go back
   const handleGoBack = () => {
@@ -292,6 +359,16 @@ const QRPaymentScreen = () => {
       </View>
     </TouchableOpacity>
   );
+
+  // Show loading state while fetching business settings
+  if (businessSettingsLoading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centered]} edges={['top', 'left', 'right']}>
+        <ActivityIndicator size="large" color="#FF6B00" />
+        <Text style={styles.loadingText}>Loading payment details...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -428,13 +505,13 @@ const QRPaymentScreen = () => {
               <View style={styles.paymentDetailsContainer}>
                 <View style={styles.paymentDetailRow}>
                   <Text style={styles.paymentDetailLabel}>Shop Name</Text>
-                  <Text style={styles.paymentDetailValue}>{SHOP_PAYMENT_DETAILS.merchantName}</Text>
+                  <Text style={styles.paymentDetailValue}>{shopPaymentDetails.merchantName}</Text>
                 </View>
 
                 <View style={styles.paymentDetailRow}>
                   <Text style={styles.paymentDetailLabel}>UPI ID</Text>
                   <View style={styles.paymentDetailValueContainer}>
-                    <Text style={styles.paymentDetailValue}>{SHOP_PAYMENT_DETAILS.upiId}</Text>
+                    <Text style={styles.paymentDetailValue}>{shopPaymentDetails.upiId}</Text>
                     <TouchableOpacity onPress={copyUpiId}>
                       <Copy size={16} color="#FF6B00" />
                     </TouchableOpacity>
@@ -540,6 +617,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f6fa',
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',

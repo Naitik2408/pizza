@@ -73,6 +73,8 @@ interface DeliveryAgent {
   name: string;
   email: string;
   role: string;
+  isOnline?: boolean; // Added online status
+  lastSeen?: string;
 }
 
 interface OrdersApiResponse {
@@ -259,12 +261,22 @@ const AdminOrders = () => {
       }
 
       const data = await response.json();
-      setDeliveryAgents(data);
+
+      // You might need to add this if your backend doesn't provide the online status
+      // This is a temporary solution if your backend doesn't yet provide online status
+      const agentsWithOnlineStatus = data.map((agent: DeliveryAgent) => ({
+        ...agent,
+        isOnline: agent.isOnline !== undefined ? agent.isOnline : Math.random() > 0.5, // Random online status for demo
+        lastSeen: agent.lastSeen || new Date(Date.now() - Math.random() * 86400000 * 3).toISOString() // Random last seen time (0-3 days ago)
+      }));
+
+      setDeliveryAgents(agentsWithOnlineStatus);
     } catch (err) {
       console.error('Error fetching delivery agents:', err);
     }
   }, [token]);
 
+  
   const assignDeliveryAgent = async (agentId: string | null, agentName: string) => {
     if (!token || !selectedOrder) return;
     setIsProcessing(true);

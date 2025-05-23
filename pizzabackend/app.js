@@ -9,6 +9,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const menuRoutes = require('./routes/menuRoutes');
 const deliveryRoutes = require('./routes/deliveryRoutes');
 const transactionRoutes = require('./routes/transactionRoutes'); // Add this line
+const businessRoutes = require('./routes/businessRoutes');
 const offerRoutes = require('./routes/offerRoutes')
 const errorHandler = require('./middleware/errorHandler');
 
@@ -28,6 +29,7 @@ app.use('/api/menu', menuRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/transactions', transactionRoutes); // Add this line
 app.use('/api/offers', offerRoutes);
+app.use('/api/settings', businessRoutes);
 
 app.use(errorHandler);
 module.exports = app;

@@ -15,7 +15,8 @@ import {
   selectTotal,
   applyDiscount,
   removeDiscount,
-  CartItem
+  CartItem,
+  updateTaxAndDelivery
 } from '../../../../redux/slices/cartSlice';
 import { RootState } from '../../../../redux/store';
 import { API_URL } from '@/config';
@@ -27,6 +28,19 @@ import OrderConfirmation from './OrderConfirmaton';
 
 // Import Address interface
 import { Address } from '../../../Api/addressApi';
+
+// Interface for business settings
+interface BusinessSettings {
+  taxSettings: {
+    gstPercentage: number;
+    applyGST: boolean;
+  };
+  deliveryCharges: {
+    fixedCharge: number;
+    freeDeliveryThreshold: number;
+    applyToAllOrders: boolean;
+  };
+}
 
 // Selected add-on interface
 interface SelectedAddOn {
@@ -64,6 +78,19 @@ interface PreparedOrderItem {
   addOns: FormattedAddOn[];
 }
 
+// Default business settings to use as fallback
+const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
+  taxSettings: {
+    gstPercentage: 5,
+    applyGST: true
+  },
+  deliveryCharges: {
+    fixedCharge: 40,
+    freeDeliveryThreshold: 500,
+    applyToAllOrders: false
+  }
+};
+
 const Cart = () => {
   const router = useRouter();
   const dispatch = useDispatch();
@@ -84,6 +111,11 @@ const Cart = () => {
   const [offerSuccess, setOfferSuccess] = useState<string | null>(null);
   // State for minimum order requirement
   const [minOrderRequirement, setMinOrderRequirement] = useState<number | null>(null);
+  
+  // State for business settings
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(DEFAULT_BUSINESS_SETTINGS);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Get cart data from Redux store
   const cartItems = useSelector(selectCartItems);
@@ -97,6 +129,138 @@ const Cart = () => {
   const discountAmount = useSelector((state: RootState) => state.cart.discountAmount || 0);
 
   const cartIsEmpty = cartItems.length === 0;
+
+  // Calculate whether delivery is free based on business settings and order subtotal
+  const isFreeDelivery = !businessSettings.deliveryCharges.applyToAllOrders && 
+    subtotal >= businessSettings.deliveryCharges.freeDeliveryThreshold;
+
+  // Calculate delivery charge based on business settings
+  const calculateDeliveryCharge = () => {
+    const { fixedCharge, freeDeliveryThreshold, applyToAllOrders } = businessSettings.deliveryCharges;
+    
+    // If delivery charge applies to all orders, return the fixed charge
+    if (applyToAllOrders) {
+      return fixedCharge;
+    }
+    
+    // Otherwise, check if order exceeds the free delivery threshold
+    return subtotal >= freeDeliveryThreshold ? 0 : fixedCharge;
+  };
+
+  // Calculate tax based on business settings
+  const calculateTax = () => {
+    const { gstPercentage, applyGST } = businessSettings.taxSettings;
+    
+    if (!applyGST) {
+      return 0;
+    }
+    
+    return (subtotal * gstPercentage) / 100;
+  };
+
+  // Fetch business settings on component mount
+  useEffect(() => {
+    const fetchBusinessSettings = async () => {
+      try {
+        setIsLoadingSettings(true);
+        
+        // Try multiple endpoints in case one fails
+        const possibleEndpoints = [
+          `${API_URL}/api/settings`,
+          `${API_URL}/api/business/settings`,
+          `${API_URL}/api/admin/settings`
+        ];
+        
+        let response = null;
+        let succeeded = false;
+        
+        // Try each endpoint until one works
+        for (const endpoint of possibleEndpoints) {
+          try {
+            console.log(`Trying to fetch business settings from: ${endpoint}`);
+            const tempResponse = await fetch(endpoint, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (tempResponse.ok) {
+              response = tempResponse;
+              succeeded = true;
+              console.log(`Successfully fetched from: ${endpoint}`);
+              break;
+            }
+          } catch (endpointError) {
+            console.log(`Failed to fetch from ${endpoint}:`, endpointError);
+          }
+        }
+        
+        if (!succeeded || !response) {
+          throw new Error('Failed to fetch business settings from any endpoint');
+        }
+        
+        const data = await response.json();
+        console.log('Received business settings:', data);
+        
+        // Set the business settings in state
+        setBusinessSettings(data);
+        
+        // Calculate delivery charge based on settings and current subtotal
+        const deliveryCharge = data.deliveryCharges.applyToAllOrders ? 
+          data.deliveryCharges.fixedCharge : 
+          (subtotal >= data.deliveryCharges.freeDeliveryThreshold ? 0 : data.deliveryCharges.fixedCharge);
+          
+        // Calculate tax based on settings
+        const taxAmount = data.taxSettings.applyGST ? 
+          (subtotal * data.taxSettings.gstPercentage) / 100 : 0;
+        
+        // Update the tax and delivery fee in Redux
+        dispatch(updateTaxAndDelivery({
+          taxPercentage: data.taxSettings.gstPercentage || 5,
+          deliveryFee: deliveryCharge
+        }));
+        
+        setSettingsError(null);
+      } catch (error) {
+        console.error('Error fetching business settings:', error);
+        setSettingsError('Using default tax and delivery rates');
+        
+        // Use default settings
+        const deliveryCharge = DEFAULT_BUSINESS_SETTINGS.deliveryCharges.applyToAllOrders ? 
+          DEFAULT_BUSINESS_SETTINGS.deliveryCharges.fixedCharge : 
+          (subtotal >= DEFAULT_BUSINESS_SETTINGS.deliveryCharges.freeDeliveryThreshold ? 0 : DEFAULT_BUSINESS_SETTINGS.deliveryCharges.fixedCharge);
+        
+        const taxAmount = DEFAULT_BUSINESS_SETTINGS.taxSettings.applyGST ? 
+          (subtotal * DEFAULT_BUSINESS_SETTINGS.taxSettings.gstPercentage) / 100 : 0;
+        
+        // Update Redux with default values
+        dispatch(updateTaxAndDelivery({
+          taxPercentage: DEFAULT_BUSINESS_SETTINGS.taxSettings.gstPercentage,
+          deliveryFee: deliveryCharge
+        }));
+      } finally {
+        setIsLoadingSettings(false);
+      }
+    };
+    
+    fetchBusinessSettings();
+  }, [dispatch]);
+
+  // Update delivery fee and tax whenever subtotal changes
+  useEffect(() => {
+    // Calculate delivery charge based on the current subtotal
+    const deliveryCharge = calculateDeliveryCharge();
+    
+    // Calculate tax based on the current subtotal
+    const taxAmount = calculateTax();
+    
+    // Update Redux with new values
+    dispatch(updateTaxAndDelivery({
+      taxPercentage: businessSettings.taxSettings.gstPercentage,
+      deliveryFee: deliveryCharge
+    }));
+  }, [subtotal, businessSettings, dispatch]);
 
   // Check for pre-selected offers when the component mounts
   useEffect(() => {
@@ -283,9 +447,6 @@ const Cart = () => {
       });
     }
 
-    // Log for debugging
-    console.log(`[${item.name}] Formatted customizations:`, JSON.stringify(formattedCustomizations));
-
     return formattedCustomizations;
   };
 
@@ -299,9 +460,6 @@ const Cart = () => {
         name: addon.name,
         price: parseFloat(addon.price?.toString() || '0')
       }));
-
-      // Log for debugging
-      console.log(`[${item.name}] Formatted add-ons:`, JSON.stringify(formattedAddOns));
     }
 
     return formattedAddOns;
@@ -333,9 +491,6 @@ const Cart = () => {
       Alert.alert('Empty Cart', 'Your cart is empty. Add some items before checking out.');
       return;
     }
-
-    // Log what's being sent to the backend for debugging
-    console.log('Prepared order items:', JSON.stringify(prepareOrderItems(), null, 2));
 
     setCheckoutStep('address');
   };
@@ -392,7 +547,6 @@ const Cart = () => {
           landmark: selectedAddress.landmark || '', // Handle potentially undefined landmark
           phone: selectedAddress.phone || '' // Handle potentially undefined phone
         }}
-        // Remove the orderItems prop if it's not expected in PaymentMethodProps
         // @ts-ignore - orderItems might not be in the type but is needed by the component
         orderItems={prepareOrderItems()}
       />
@@ -618,15 +772,53 @@ const Cart = () => {
               </View>
             )}
 
+            {/* Dynamic Delivery Fee */}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Delivery Fee</Text>
-              <Text style={styles.summaryValue}>₹{deliveryFee.toFixed(2)}</Text>
+              {isLoadingSettings ? (
+                <ActivityIndicator size="small" color="#666" />
+              ) : (
+                <>
+                  <Text style={styles.summaryValue}>
+                    {isFreeDelivery ? "Free" : `₹${deliveryFee.toFixed(2)}`}
+                  </Text>
+                  {isFreeDelivery && (
+                    <View style={styles.freeDeliveryBadge}>
+                      <Text style={styles.freeDeliveryText}>FREE</Text>
+                    </View>
+                  )}
+                </>
+              )}
             </View>
 
+            {!isLoadingSettings && !businessSettings.deliveryCharges.applyToAllOrders && (
+              <Text style={styles.freeDeliveryNote}>
+                {isFreeDelivery 
+                  ? `Free delivery on orders above ₹${businessSettings.deliveryCharges.freeDeliveryThreshold}`
+                  : `Free delivery on orders above ₹${businessSettings.deliveryCharges.freeDeliveryThreshold} (you need ₹${(businessSettings.deliveryCharges.freeDeliveryThreshold - subtotal).toFixed(2)} more)`}
+              </Text>
+            )}
+
+            {/* Dynamic Tax Rate */}
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Taxes</Text>
-              <Text style={styles.summaryValue}>₹{tax.toFixed(2)}</Text>
+              <Text style={styles.summaryLabel}>
+                {isLoadingSettings 
+                  ? 'Taxes' 
+                  : businessSettings.taxSettings.applyGST 
+                    ? `Taxes (${businessSettings.taxSettings.gstPercentage}% GST)` 
+                    : 'Taxes'}
+              </Text>
+              {isLoadingSettings ? (
+                <ActivityIndicator size="small" color="#666" />
+              ) : (
+                <Text style={styles.summaryValue}>₹{tax.toFixed(2)}</Text>
+              )}
             </View>
+
+            {/* Show error if settings failed to load */}
+            {settingsError && (
+              <Text style={styles.settingsNote}>{settingsError}</Text>
+            )}
 
             <View style={styles.divider} />
 
@@ -863,6 +1055,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
   },
+  settingsNote: {
+    color: '#FF9800',
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
   appliedOfferContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -941,6 +1139,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
+    alignItems: 'center',
   },
   summaryLabel: {
     fontSize: 14,
@@ -949,6 +1148,27 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontSize: 14,
     color: '#333',
+  },
+  freeDeliveryBadge: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+  },
+  freeDeliveryText: {
+    fontSize: 10,
+    color: '#10B981',
+    fontWeight: 'bold',
+  },
+  freeDeliveryNote: {
+    fontSize: 12,
+    color: '#10B981',
+    marginTop: -4,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   divider: {
     height: 1,

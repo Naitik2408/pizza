@@ -43,16 +43,20 @@ interface CartState {
   items: CartItem[];
   deliveryFee: number;
   taxRate: number;
+  taxAmount: number; // Add explicit taxAmount field for dynamic tax calculation
   discount: Discount | null;
   discountAmount: number;
+  total: number; // Add explicit total field for easy access
 }
 
 const initialState: CartState = {
   items: [],
-  deliveryFee: 2.99,
-  taxRate: 0.07, // 7% tax
+  deliveryFee: 40, // Default delivery fee in INR
+  taxRate: 0.05, // 5% tax
+  taxAmount: 0,
   discount: null,
-  discountAmount: 0
+  discountAmount: 0,
+  total: 0
 };
 
 // Function to calculate discount amount based on cart state
@@ -98,6 +102,39 @@ const calculateDiscountAmount = (state: CartState): number => {
   }
   
   return Math.round(discountAmount * 100) / 100; // Round to 2 decimal places
+};
+
+// Function to calculate total for internal state updates
+const calculateTotal = (state: CartState): number => {
+  const subtotal = state.items.reduce((total, item) => {
+    let itemTotal = item.price * item.quantity;
+    
+    // Include legacy customizations price
+    if (item.customizations) {
+      Object.values(item.customizations).forEach(option => {
+        itemTotal += option.price * item.quantity;
+      });
+    }
+    
+    // Include new add-ons price
+    if (item.addOns && item.addOns.length > 0) {
+      item.addOns.forEach(addOn => {
+        itemTotal += addOn.price * item.quantity;
+      });
+    }
+    
+    return total + itemTotal;
+  }, 0);
+  
+  // Calculate tax amount using current tax rate
+  const taxAmount = subtotal * state.taxRate;
+  
+  // Get current discount amount
+  const discountAmount = state.discountAmount || 0;
+  
+  // Calculate total but prevent it from going negative
+  const calculatedTotal = subtotal + state.deliveryFee + taxAmount - discountAmount;
+  return Math.max(0, calculatedTotal); // Ensure total is never negative
 };
 
 // Helper function to check if two arrays of add-ons are the same
@@ -152,6 +189,13 @@ const cartSlice = createSlice({
       if (state.discount) {
         state.discountAmount = calculateDiscountAmount(state);
       }
+      
+      // Update tax amount based on current subtotal
+      const subtotal = selectSubtotal({ cart: state });
+      state.taxAmount = subtotal * state.taxRate;
+      
+      // Update total
+      state.total = calculateTotal(state);
     },
     
     updateQuantity: (state, action: PayloadAction<{ id: string; quantity: number }>) => {
@@ -176,6 +220,13 @@ const cartSlice = createSlice({
             state.discount = null;
           }
         }
+        
+        // Update tax amount based on current subtotal
+        const subtotal = selectSubtotal({ cart: state });
+        state.taxAmount = subtotal * state.taxRate;
+        
+        // Update total
+        state.total = calculateTotal(state);
       }
     },
     
@@ -192,12 +243,21 @@ const cartSlice = createSlice({
           state.discount = null;
         }
       }
+      
+      // Update tax amount based on current subtotal
+      const subtotal = selectSubtotal({ cart: state });
+      state.taxAmount = subtotal * state.taxRate;
+      
+      // Update total
+      state.total = calculateTotal(state);
     },
     
     clearCart: (state) => {
       state.items = [];
       state.discount = null;
       state.discountAmount = 0;
+      state.taxAmount = 0;
+      state.total = 0;
     },
     
     // New discount actions
@@ -211,11 +271,35 @@ const cartSlice = createSlice({
         // Calculate discount if amount is not provided
         state.discountAmount = calculateDiscountAmount(state);
       }
+      
+      // Update total
+      state.total = calculateTotal(state);
     },
 
     removeDiscount: (state) => {
       state.discount = null;
       state.discountAmount = 0;
+      
+      // Update total
+      state.total = calculateTotal(state);
+    },
+    
+    // Add the missing updateTaxAndDelivery action
+    updateTaxAndDelivery: (state, action: PayloadAction<{ taxPercentage: number, deliveryFee: number }>) => {
+      const { taxPercentage, deliveryFee } = action.payload;
+      
+      // Update tax rate (convert percentage to decimal)
+      state.taxRate = taxPercentage / 100;
+      
+      // Update delivery fee
+      state.deliveryFee = deliveryFee;
+      
+      // Recalculate tax amount with new rate
+      const subtotal = selectSubtotal({ cart: state });
+      state.taxAmount = subtotal * state.taxRate;
+      
+      // Update total with new tax and delivery values
+      state.total = calculateTotal(state);
     }
   }
 });
@@ -227,7 +311,8 @@ export const {
   removeFromCart, 
   clearCart,
   applyDiscount,
-  removeDiscount
+  removeDiscount,
+  updateTaxAndDelivery // Export the new action
 } = cartSlice.actions;
 
 // Export selectors
@@ -257,18 +342,18 @@ export const selectSubtotal = (state: { cart: CartState }) =>
 export const selectDeliveryFee = (state: { cart: CartState }) => 
   state.cart.items.length > 0 ? state.cart.deliveryFee : 0;
 export const selectTaxAmount = (state: { cart: CartState }) => {
-  const subtotal = selectSubtotal({ cart: state.cart });
-  return subtotal * state.cart.taxRate;
+  // Use the stored tax amount if available, otherwise calculate it
+  if (state.cart.items.length > 0) {
+    return state.cart.taxAmount || (selectSubtotal({ cart: state.cart }) * state.cart.taxRate);
+  }
+  return 0;
 };
 export const selectTotal = (state: { cart: CartState }) => {
-  const subtotal = selectSubtotal({ cart: state.cart });
-  const deliveryFee = selectDeliveryFee({ cart: state.cart });
-  const tax = selectTaxAmount({ cart: state.cart });
-  const discountAmount = state.cart.discountAmount || 0;
-  
-  // Calculate total but prevent it from going negative
-  const calculatedTotal = subtotal + deliveryFee + tax - discountAmount;
-  return Math.max(0, calculatedTotal); // Ensure total is never negative
+  // Use the stored total if available, otherwise calculate it
+  if (state.cart.items.length > 0) {
+    return state.cart.total || calculateTotal(state.cart);
+  }
+  return 0;
 };
 
 export default cartSlice.reducer;
