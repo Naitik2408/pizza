@@ -1,5 +1,6 @@
 // Base API URL - update this to match your backend server address
-export const API_URL = 'http://192.168.23.48:5000'; // Example local development server IP
+// export const API_URL = 'http://192.168.23.48:5000'; 
+export const API_URL = 'https://pizza-backend-pi.vercel.app'; 
 
 // For easier switching between environments
 export const ENVIRONMENTS = {

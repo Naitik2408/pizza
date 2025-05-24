@@ -16,9 +16,22 @@
       "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router"
+    ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "27cd6137-1783-482b-8dd0-571a3dc859f2"
+      }
+    },
+    "android": {
+      "package": "com.naitik2408.boltexponativewind"
     }
   }
 }
