@@ -168,7 +168,7 @@ export default function LoginScreen() {
           {/* Header with pizza image and overlay */}
           <View style={styles.header}>
             <Image
-              source={{ uri: 'https://img.freepik.com/free-photo/happy-hard-working-handsome-male-driver-scooter-with-red-helmet-delivering-pizza_273609-31429.jpg?t=st=1745240926~exp=1745244526~hmac=3e8a059358ffb3d20bc29e7d96d72e735b1cb3c19ea07393166c7c38c1c0942a&w=1380' }}
+              source={require('../../assets/images/auth.png')}
               style={styles.headerImage}
               resizeMode="cover"
             />

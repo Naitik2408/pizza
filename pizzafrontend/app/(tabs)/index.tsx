@@ -13,20 +13,20 @@ import {
   ImageBackground,
   StatusBar,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
-import { Star, ShoppingBag, ChevronRight, Sparkles } from 'lucide-react-native';
+import { Star, ShoppingBag, ChevronRight, Pizza, Flame, Trophy, Gift } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
-import data from '../../data.json'; // Import JSON data
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { API_URL } from '@/config';
+import { addToCart } from '../../redux/slices/cartSlice';
 
 const { width, height } = Dimensions.get('window');
-const ITEM_WIDTH = width * 0.85; // Make cards wider
-const SPACING = 10;
+const ITEM_WIDTH = width * 0.8;
+const SPACING = 15;
 
 // Interface for offers fetched from backend
 interface Offer {
@@ -53,24 +53,71 @@ interface HomeOfferItem {
   badge: string;
   title: string;
   subtitle: string;
-  code?: string; // Added code
+  code?: string;
+  bgColor: string;
+  gradientColors: readonly [string, string]; // This ensures exactly 2 colors
+}
+
+// Menu Item interface to match backend schema
+interface MenuItem {
+  _id: string;
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  image: string;
+  foodType: string;
+  isVeg: boolean;
+  popular: boolean;
+  rating: number;
+  available: boolean;
 }
 
 function HomeScreen() {
   const router = useRouter();
+  const dispatch = useDispatch();
   const scrollX = useRef(new Animated.Value(0)).current;
   const [activeOfferIndex, setActiveOfferIndex] = useState(0);
   const [offers, setOffers] = useState<HomeOfferItem[]>([]);
   const [loadingOffers, setLoadingOffers] = useState(true);
   const [offerError, setOfferError] = useState<string | null>(null);
 
+  // Popular items state
+  const [popularItems, setPopularItems] = useState<MenuItem[]>([]);
+  const [loadingPopularItems, setLoadingPopularItems] = useState(true);
+  const [popularItemsError, setPopularItemsError] = useState<string | null>(null);
+
   // Get user info from redux state
-  const { name, isGuest, token } = useSelector((state: RootState) => state.auth);
+  const { name, isGuest } = useSelector((state: RootState) => state.auth);
   const userName = name || 'Pizza Lover';
 
-  // Simulate cart items
+  // Get cart items
   const cartItems = useSelector((state: RootState) => state.cart.items);
   const cartItemCount = cartItems.length;
+
+
+  const offerThemes = [
+  {
+    bgColor: '#FF5722',
+    gradientColors: ['#FF9800', '#FF5722'] as const // Using 'as const' to make it a readonly tuple
+  },
+  {
+    bgColor: '#2196F3',
+    gradientColors: ['#03A9F4', '#1976D2'] as const
+  },
+  {
+    bgColor: '#4CAF50',
+    gradientColors: ['#8BC34A', '#388E3C'] as const
+  },
+  {
+    bgColor: '#9C27B0',
+    gradientColors: ['#BA68C8', '#7B1FA2'] as const
+  },
+  {
+    bgColor: '#F44336',
+    gradientColors: ['#FF5252', '#D32F2F'] as const
+  }
+];
 
   useEffect(() => {
     const fetchOffers = async () => {
@@ -78,7 +125,6 @@ function HomeScreen() {
         setLoadingOffers(true);
         setOfferError(null);
 
-        // Use the public endpoint instead of the admin-only endpoint
         const response = await fetch(`${API_URL}/api/offers`);
 
         if (!response.ok) {
@@ -87,9 +133,7 @@ function HomeScreen() {
 
         const data: Offer[] = await response.json();
 
-        // Transform backend offers to home screen offer format
-        const transformedOffers: HomeOfferItem[] = data.map(offer => {
-          // Generate badge text based on discount type and value
+        const transformedOffers: HomeOfferItem[] = data.map((offer, index) => {
           let badgeText = '';
           if (offer.discountType === 'percentage') {
             badgeText = `${offer.discountValue}% OFF`;
@@ -97,17 +141,15 @@ function HomeScreen() {
             badgeText = `₹${offer.discountValue} OFF`;
           }
 
-          // Sample offer images - in a real app you'd store image URLs with offers
           const sampleImages = [
-            'https://img.freepik.com/free-photo/photo-happy-joyful-man-wearing-burgundy-casual-t-shirt-looking-smiling-camera-holding-pizza-boxes_176532-9612.jpg?t=st=1745249055~exp=1745252655~hmac=52d7ce90a296baee9572fc3d5475ba8e75d7a03eb85ecb1db940e5630505b537&w=1380',
-            'https://img.freepik.com/free-photo/young-delivery-man-red-polo-shirt-cap-standing-with-box-fresh-pizza-pointing-it-with-finger-looking-camera-convinced-confident-isolated-pink-background_141793-19548.jpg?t=st=1745249128~exp=1745252728~hmac=c4c2b41db080ea544c7de06e1a590272b3a14e6473aeb6bf903d8ec895cd085f&w=1380',
-            'https://img.freepik.com/free-photo/young-delivery-man-red-uniform-cap-holding-paper-package-stack-pizza-boxes-pointing-something-with-skeptic-expression_141793-46341.jpg?t=st=1745249173~exp=1745252773~hmac=cecf90be9f1c55f57355827f0daa191696786cc6940291b0684220df73694671&w=1380'
+            'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?q=80&w=1581&auto=format&fit=crop',
+            'https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=1470&auto=format&fit=crop',
+            'https://images.unsplash.com/photo-1571407970349-bc81e7e96d47?q=80&w=1160&auto=format&fit=crop'
           ];
 
-          // Choose an image based on the offer ID (consistent but pseudo-random)
           const imageIndex = offer._id.charCodeAt(0) % sampleImages.length;
+          const themeIndex = index % offerThemes.length;
 
-          // Generate subtitle based on offer details
           let subtitle = offer.description;
           if (offer.minOrderValue > 0) {
             subtitle += ` Min order: ₹${offer.minOrderValue}`;
@@ -119,7 +161,9 @@ function HomeScreen() {
             badge: badgeText,
             title: offer.title,
             subtitle: subtitle,
-            code: offer.code
+            code: offer.code,
+            bgColor: offerThemes[themeIndex].bgColor,
+            gradientColors: offerThemes[themeIndex].gradientColors
           };
         });
 
@@ -128,28 +172,34 @@ function HomeScreen() {
         console.error('Error fetching offers:', error);
         setOfferError('Could not load offers');
 
-        // Fallback to default offers if backend fetch fails
+        // Fallback offers
         setOffers([
           {
             id: 'offer-1',
-            image: 'https://img.freepik.com/free-photo/photo-happy-joyful-man-wearing-burgundy-casual-t-shirt-looking-smiling-camera-holding-pizza-boxes_176532-9612.jpg?t=st=1745249055~exp=1745252655~hmac=52d7ce90a296baee9572fc3d5475ba8e75d7a03eb85ecb1db940e5630505b537&w=1380',
+            image: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?q=80&w=1581&auto=format&fit=crop',
             badge: '40% OFF',
-            title: 'Friday Special',
-            subtitle: 'Get 40% off on all orders above ₹599'
+            title: 'Weekend Special',
+            subtitle: 'Get 40% off on all orders above ₹599',
+            bgColor: offerThemes[0].bgColor,
+            gradientColors: offerThemes[0].gradientColors
           },
           {
             id: 'offer-2',
-            image: 'https://img.freepik.com/free-photo/young-delivery-man-red-polo-shirt-cap-standing-with-box-fresh-pizza-pointing-it-with-finger-looking-camera-convinced-confident-isolated-pink-background_141793-19548.jpg?t=st=1745249128~exp=1745252728~hmac=c4c2b41db080ea544c7de06e1a590272b3a14e6473aeb6bf903d8ec895cd085f&w=1380',
+            image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=1470&auto=format&fit=crop',
             badge: 'NEW',
-            title: 'Cheese Explosion',
-            subtitle: 'Try our new 4-cheese pizza today'
+            title: 'Cheese Overload',
+            subtitle: 'Try our new 4-cheese pizza today',
+            bgColor: offerThemes[1].bgColor,
+            gradientColors: offerThemes[1].gradientColors
           },
           {
             id: 'offer-3',
-            image: 'https://img.freepik.com/free-photo/young-delivery-man-red-uniform-cap-holding-paper-package-stack-pizza-boxes-pointing-something-with-skeptic-expression_141793-46341.jpg?t=st=1745249173~exp=1745252773~hmac=cecf90be9f1c55f57355827f0daa191696786cc6940291b0684220df73694671&w=1380',
+            image: 'https://images.unsplash.com/photo-1571407970349-bc81e7e96d47?q=80&w=1160&auto=format&fit=crop',
             badge: 'COMBO',
-            title: 'Family Bundle',
-            subtitle: '2 Pizzas + Sides + Drinks at ₹799'
+            title: 'Family Feast',
+            subtitle: '2 Large Pizzas + Sides + Drinks at ₹999',
+            bgColor: offerThemes[2].bgColor,
+            gradientColors: offerThemes[2].gradientColors
           }
         ]);
       } finally {
@@ -157,23 +207,77 @@ function HomeScreen() {
       }
     };
 
+    const fetchPopularItems = async () => {
+      try {
+        setLoadingPopularItems(true);
+        setPopularItemsError(null);
+
+        const response = await fetch(`${API_URL}/api/menu?popular=true`);
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch popular items');
+        }
+
+        const data: MenuItem[] = await response.json();
+
+        // Filter items that are both popular and available
+        const filteredItems = data.filter(item => item.popular && item.available);
+
+        // Limit to 6 items for the home screen preview
+        setPopularItems(filteredItems.slice(0, 6));
+      } catch (error) {
+        console.error('Error fetching popular items:', error);
+        setPopularItemsError('Could not load popular items');
+      } finally {
+        setLoadingPopularItems(false);
+      }
+    };
+
     fetchOffers();
+    fetchPopularItems();
   }, []);
 
   const navigateToCart = () => {
-    // Navigate to cart
     router.push('/cart');
   };
 
   const navigateToItem = (itemId: string) => {
-    // Navigate to item detail
     // router.push(`/menu/${itemId}`);
+  };
+
+  const navigateToMenu = () => {
+    router.push('/(tabs)/menu');
+  };
+
+  const handleAddToCart = (item: MenuItem) => {
+    dispatch(addToCart({
+      id: item._id,
+      name: item.name,
+      price: item.price,
+      image: item.image,
+      quantity: 1,
+      size: 'Medium', // Default size
+      foodType: item.foodType,
+    }));
+
+    // Show a brief success message
+    Alert.alert(
+      "Added to Cart",
+      `${item.name} added to your cart.`,
+      [
+        { text: "Continue Shopping", style: "default" },
+        {
+          text: "View Cart",
+          onPress: () => router.push('/cart')
+        }
+      ],
+      { cancelable: true }
+    );
   };
 
   const handleUseOffer = (code: string) => {
     if (!code) return;
 
-    // Store the offer code in AsyncStorage for later use in the cart
     AsyncStorage.setItem('selectedOfferCode', code)
       .then(() => {
         console.log(`Offer code ${code} saved to be applied at checkout`);
@@ -181,9 +285,9 @@ function HomeScreen() {
           "Offer Selected",
           `You've selected the offer code: ${code}. It will be automatically applied at checkout.`,
           [
-            { text: "Continue Shopping", style: "cancel" },
+            { text: "Continue Browsing", style: "cancel" },
             {
-              text: "Go to Cart",
+              text: "View Cart",
               onPress: () => router.push('/cart')
             }
           ]
@@ -193,8 +297,7 @@ function HomeScreen() {
         console.error("Failed to save offer code:", err);
       });
   };
-  
-  // Define the scroll handler
+
   const handleOfferScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { x: scrollX } } }],
     {
@@ -207,6 +310,17 @@ function HomeScreen() {
     }
   );
 
+  // Render a skeleton placeholder for popular items while loading
+  const renderPopularItemSkeleton = () => (
+    <View style={styles.popularItemSkeletonCard}>
+      <View style={styles.popularItemSkeletonImage} />
+      <View style={styles.popularItemSkeletonContent}>
+        <View style={styles.popularItemSkeletonTitle} />
+        <View style={styles.popularItemSkeletonPrice} />
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -215,49 +329,61 @@ function HomeScreen() {
         contentContainerStyle={styles.scrollContentContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero Section */}
+        {/* Hero Section with Modern Design */}
         <ImageBackground
-          source={{ uri: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80' }}
+          source={{ uri: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=1470&auto=format&fit=crop' }}
           style={styles.heroBackground}
         >
           <LinearGradient
-            colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.3)']}
+            colors={['rgba(0,0,0,0.8)', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.4)']}
             style={styles.heroGradient}
           >
             <View style={styles.appBar}>
-              <Text style={styles.brandText}>Pizza Bytes</Text>
-              <View style={styles.appBarRight}>
-                <TouchableOpacity style={styles.cartButton} onPress={navigateToCart}>
-                  <ShoppingBag size={20} color="#fff" />
-                  {cartItemCount > 0 && (
-                    <View style={styles.cartBadge}>
-                      <Text style={styles.cartBadgeText}>{cartItemCount}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
+              <View style={styles.logoContainer}>
+                <Pizza size={28} color="#FF9800" />
+                <Text style={styles.brandText}>Friends Pizza Hut</Text>
               </View>
+              <TouchableOpacity
+                style={styles.cartButton}
+                onPress={navigateToCart}
+              >
+                <ShoppingBag size={20} color="#fff" />
+                {cartItemCount > 0 && (
+                  <View style={styles.cartBadge}>
+                    <Text style={styles.cartBadgeText}>{cartItemCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
 
             <View style={styles.greeting}>
               <Text style={styles.welcomeText}>Hi {userName}!</Text>
-              <Text style={styles.tagline}>What would you like to taste today?</Text>
+              <Text style={styles.tagline}>Craving a delicious pizza today?</Text>
+
+              <TouchableOpacity
+                style={styles.exploreButton}
+                onPress={navigateToMenu}
+              >
+                <Text style={styles.exploreButtonText}>Explore Menu</Text>
+                <ChevronRight size={18} color="#fff" />
+              </TouchableOpacity>
             </View>
           </LinearGradient>
         </ImageBackground>
 
         <View style={styles.mainContent}>
-          {/* Hot Offers Carousel - Enhanced UI */}
+          {/* Hot Offers Carousel - Enhanced Design */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleContainer}>
-                <Sparkles size={20} color="#FF6B00" />
+                <Gift size={20} color="#FF9800" />
                 <Text style={styles.sectionTitle}>Hot Offers</Text>
               </View>
             </View>
 
             {loadingOffers ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#FF6B00" />
+                <ActivityIndicator size="large" color="#FF9800" />
                 <Text style={styles.loadingText}>Loading offers...</Text>
               </View>
             ) : offerError ? (
@@ -275,26 +401,35 @@ function HomeScreen() {
                   keyExtractor={(item) => item.id}
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingLeft: 20 }}
+                  contentContainerStyle={{ paddingLeft: 20, paddingBottom: 10, paddingTop: 5 }}
                   snapToInterval={ITEM_WIDTH + SPACING}
                   snapToAlignment="start"
                   decelerationRate="fast"
                   onScroll={handleOfferScroll}
                   renderItem={({ item }) => (
                     <View style={{ width: ITEM_WIDTH, marginRight: SPACING }}>
-                      <View style={styles.offerCardEnhanced}>
-                        <Image source={{ uri: item.image }} style={styles.offerImageEnhanced} />
+                      <View
+                        style={[
+                          styles.offerCard,
+                        ]}
+                      >
                         <LinearGradient
-                          colors={['transparent', 'rgba(0,0,0,0.8)']}
-                          style={styles.offerGradientEnhanced}
+                          colors={item.gradientColors}
+                          start={{ x: 0.0, y: 0.0 }}
+                          end={{ x: 1.0, y: 1.0 }}
+                          style={styles.offerCardGradient}
                         >
-                          <View style={styles.offerContent}>
-                            <View style={styles.offerBadgeEnhanced}>
-                              <Text style={styles.offerBadgeTextEnhanced}>{item.badge}</Text>
+                          <View style={styles.offerBadgeContainer}>
+                            <View style={styles.offerBadge}>
+                              <Text style={styles.offerBadgeText}>{item.badge}</Text>
                             </View>
+                          </View>
 
-                            <Text style={styles.offerTitleEnhanced}>{item.title}</Text>
-                            <Text style={styles.offerSubtitleEnhanced}>
+                          <View style={styles.offerCardContent}>
+                            <Text style={styles.offerTitle} numberOfLines={1}>
+                              {item.title}
+                            </Text>
+                            <Text style={styles.offerSubtitle} numberOfLines={2}>
                               {item.subtitle}
                             </Text>
 
@@ -305,7 +440,7 @@ function HomeScreen() {
                               </View>
                             )}
 
-                            <TouchableOpacity 
+                            <TouchableOpacity
                               style={styles.offerActionButton}
                               onPress={() => handleUseOffer(item.code || '')}
                             >
@@ -314,13 +449,18 @@ function HomeScreen() {
                               </Text>
                             </TouchableOpacity>
                           </View>
+
+                          {/* Decorative elements */}
+                          <View style={styles.decorCircle1}></View>
+                          <View style={styles.decorCircle2}></View>
+                          <View style={styles.decorCircle3}></View>
                         </LinearGradient>
                       </View>
                     </View>
                   )}
                 />
 
-                {/* Pagination dots */}
+                {/* Modern Pagination dots */}
                 <View style={styles.paginationDots}>
                   {offers.map((_, index) => (
                     <View
@@ -336,81 +476,122 @@ function HomeScreen() {
             )}
           </View>
 
-          {/* Popular Pizzas */}
+          {/* Popular Items Section - Enhanced Design */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleContainer}>
-                <Star size={20} color="#FF6B00" />
-                <Text style={styles.sectionTitle}>Popular Pizzas</Text>
+                <Flame size={20} color="#FF9800" />
+                <Text style={styles.sectionTitle}>Popular Items</Text>
               </View>
-              <TouchableOpacity>
-                <Text style={styles.sectionAction}>View All</Text>
+              <TouchableOpacity
+                style={styles.viewAllButton}
+                onPress={navigateToMenu}
+              >
+                <Text style={styles.viewAllText}>View All</Text>
+                <ChevronRight size={16} color="#FF9800" />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.pizzaGridContainer}>
-              {data.featuredPizzas.slice(0, 4).map((item: any) => (
-                <TouchableOpacity
-                  key={item.id || `pizza-${item.name}`}
-                  style={styles.pizzaCardImproved}
-                  onPress={() => navigateToItem(item.id || `pizza-${item.name}`)}
-                >
-                  <Image source={{ uri: item.image }} style={styles.pizzaImageImproved} />
-                  <View style={styles.pizzaCardContentImproved}>
-                    <Text style={styles.pizzaNameImproved}>
-                      {item.name}
-                    </Text>
-                    <View style={styles.pizzaCardFooterImproved}>
-                      <Text style={styles.pizzaPriceImproved}>
-                        ₹{item.price}
-                      </Text>
-                      <TouchableOpacity
-                        style={styles.addButtonImproved}
-                        // In a real app, add this item to cart
-                      >
-                        <Text style={styles.addButtonTextImproved}>+</Text>
-                      </TouchableOpacity>
-                    </View>
+            {loadingPopularItems ? (
+              <View style={styles.popularItemsGrid}>
+                {[1, 2, 3, 4].map((_, index) => (
+                  <View key={index} style={styles.popularItemWrapper}>
+                    {renderPopularItemSkeleton()}
                   </View>
-                </TouchableOpacity>
-              ))}
-            </View>
+                ))}
+              </View>
+            ) : popularItemsError ? (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{popularItemsError}</Text>
+              </View>
+            ) : popularItems.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No popular items available</Text>
+              </View>
+            ) : (
+              <View style={styles.popularItemsGrid}>
+                {popularItems.map((item) => (
+                  <View key={item._id} style={styles.popularItemWrapper}>
+                    <TouchableOpacity
+                      style={styles.popularItemCard}
+                      onPress={() => navigateToItem(item._id)}
+                    >
+                      <View style={styles.popularItemImageWrapper}>
+                        <Image
+                          source={{ uri: item.image }}
+                          style={styles.popularItemImage}
+                        />
+
+                        {/* Food type indicator */}
+                        <View
+                          style={[
+                            styles.foodTypeIndicator,
+                            item.isVeg ? styles.vegIndicator : styles.nonVegIndicator
+                          ]}
+                        >
+                          <View
+                            style={[
+                              styles.foodTypeDot,
+                              item.isVeg ? styles.vegDot : styles.nonVegDot
+                            ]}
+                          />
+                        </View>
+
+                        {/* Rating badge */}
+                        <View style={styles.ratingBadge}>
+                          <Star size={10} color="#FFD700" fill="#FFD700" />
+                          <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.popularItemContent}>
+                        <Text style={styles.popularItemName} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+
+                        <Text style={styles.popularItemDescription} numberOfLines={1}>
+                          {item.category}
+                        </Text>
+
+                        <View style={styles.popularItemFooter}>
+                          <Text style={styles.popularItemPrice}>₹{item.price}</Text>
+                          <TouchableOpacity
+                            style={styles.addToCartButton}
+                            onPress={() => handleAddToCart(item)}
+                          >
+                            <Text style={styles.addToCartIcon}>+</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
-          {/* Deals of the Day */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleContainer}>
-                <Sparkles size={20} color="#FF6B00" />
-                <Text style={styles.sectionTitle}>Deals of the Day</Text>
+          {/* Store Info - Enhanced Design */}
+          <View style={styles.storeInfoSection}>
+            <View style={styles.storeInfoHeader}>
+              <Text style={styles.storeInfoTitle}>Friends Pizza Hut</Text>
+              <View style={styles.storeInfoBadge}>
+                <Text style={styles.storeInfoBadgeText}>OPEN NOW</Text>
               </View>
-              <TouchableOpacity>
-                <Text style={styles.sectionAction}>View All</Text>
-              </TouchableOpacity>
             </View>
 
-            <View style={styles.dealsGridContainer}>
-              {data.menuItems.slice(0, 2).map((deal: any) => (
-                <View key={deal.id || `deal-${deal.name}`} style={styles.dealCard}>
-                  <Image source={{ uri: deal.image }} style={styles.dealImage} />
-                  <View style={styles.dealContent}>
-                    <Text style={styles.dealTitle}>{deal.name}</Text>
-                    <Text style={styles.dealDescription}>
-                      {deal.description}
-                    </Text>
-                    <View style={styles.dealFooter}>
-                      <Text style={styles.dealPrice}>₹{deal.price}</Text>
-                      <TouchableOpacity
-                        style={styles.viewDealButton}
-                        // Add navigation to deal details
-                      >
-                        <Text style={styles.viewDealText}>View Deal</Text>
-                        <ChevronRight size={16} color="#FF6B00" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              ))}
+            <View style={styles.storeInfoContent}>
+              <Text style={styles.storeInfoAddress}>123 Foodie Street, Flavor Town</Text>
+              <Text style={styles.storeInfoHours}>Hours: 11:00 AM - 11:00 PM</Text>
+
+              <View style={styles.storeInfoActions}>
+                <TouchableOpacity style={styles.storeInfoButton}>
+                  <Text style={styles.storeInfoButtonText}>Call Us</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.storeInfoButton, styles.storeInfoButtonSecondary]}>
+                  <Text style={styles.storeInfoButtonTextSecondary}>Directions</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
@@ -422,7 +603,7 @@ function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#F5F7FA',
   },
   scrollContainer: {
     flex: 1,
@@ -432,7 +613,7 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
   heroBackground: {
-    height: height * 0.45,
+    height: height * 0.38,
     width: '100%',
   },
   heroGradient: {
@@ -445,33 +626,43 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   brandText: {
     color: '#fff',
     fontSize: 22,
     fontWeight: 'bold',
-  },
-  appBarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    marginLeft: 10,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
   },
   cartButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
+    backdropFilter: 'blur(10px)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   cartBadge: {
     position: 'absolute',
     top: -5,
     right: -5,
-    backgroundColor: '#FF6B00',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
+    backgroundColor: '#FF9800',
+    borderRadius: 12,
+    minWidth: 22,
+    height: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 6,
+    borderWidth: 1.5,
+    borderColor: '#FFF',
   },
   cartBadgeText: {
     color: '#fff',
@@ -480,7 +671,7 @@ const styles = StyleSheet.create({
   },
   greeting: {
     position: 'absolute',
-    bottom: 80,
+    bottom: 60,
     left: 20,
     right: 20,
   },
@@ -491,25 +682,47 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 5,
+    marginBottom: 4,
   },
   tagline: {
     color: '#fff',
-    fontSize: 18,
-    marginTop: 10,
-    opacity: 0.9,
+    fontSize: 16,
+    opacity: 0.95,
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 5,
+    marginBottom: 20,
+  },
+  exploreButton: {
+    backgroundColor: '#FF9800',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    alignSelf: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  exploreButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginRight: 5,
   },
   mainContent: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#F5F7FA',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     marginTop: -30,
-    paddingTop: 20,
+    paddingTop: 30,
   },
   section: {
-    marginBottom: 25,
+    marginBottom: 35,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -525,167 +738,140 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#1c1917',
+    color: '#333',
     marginLeft: 8,
   },
-  sectionAction: {
-    color: '#FF6B00',
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  viewAllText: {
+    color: '#FF9800',
     fontWeight: '600',
     fontSize: 14,
   },
-  offersList: {
-    paddingLeft: 20,
-    paddingRight: 10,
-  },
+
+  // Enhanced Offer Cards
   offerCard: {
-    height: 200,
+    height: 180,
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
   },
-  offerImage: {
-    width: '100%',
+  offerCardGradient: {
     height: '100%',
-    position: 'absolute',
+    padding: 18,
+    position: 'relative',
+    justifyContent: 'space-between',
   },
-  offerGradient: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    padding: 16,
+  offerBadgeContainer: {
+    alignItems: 'flex-start',
   },
   offerBadge: {
-    backgroundColor: '#FF6B00',
+    backgroundColor: 'rgba(255,255,255,0.25)',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
+    borderRadius: 30,
+    marginBottom: 12,
   },
   offerBadgeText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 12,
   },
+  offerCardContent: {
+    zIndex: 2,
+  },
   offerTitle: {
     color: '#fff',
     fontSize: 22,
     fontWeight: 'bold',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    marginBottom: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
     textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
+    textShadowRadius: 2,
   },
   offerSubtitle: {
-    color: '#fff',
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 14,
-    opacity: 0.9,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
-  },
-  offersListEnhanced: {
-    paddingLeft: 20,
-    paddingRight: 10,
-    paddingVertical: 10,
-  },
-  offerCardEnhanced: {
-    minHeight: 250,
-    maxHeight: 350,
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  offerImageEnhanced: {
-    width: '100%',
-    height: '100%',
-    position: 'absolute',
-    resizeMode: 'cover',
-  },
-  offerGradientEnhanced: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    padding: 0,
-  },
-  offerContent: {
-    padding: 20,
-    flexShrink: 1,
-  },
-  offerBadgeEnhanced: {
-    backgroundColor: '#FF6B00',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-    marginBottom: 12,
-  },
-  offerBadgeTextEnhanced: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  offerTitleEnhanced: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 6,
-    textShadowColor: 'rgba(0, 0, 0, 0.7)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 4,
-  },
-  offerSubtitleEnhanced: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 16,
-    opacity: 0.95,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
+    marginBottom: 14,
     flexWrap: 'wrap',
+    width: '90%',
   },
   offerCodeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    marginBottom: 14,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 8,
     alignSelf: 'flex-start',
   },
   offerCodeLabel: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
     marginRight: 6,
   },
   offerCode: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     letterSpacing: 1,
   },
   offerActionButton: {
-    backgroundColor: '#FF6B00',
+    backgroundColor: '#fff',
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 30,
     alignSelf: 'flex-start',
-    marginTop: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
   },
   offerActionButtonText: {
-    color: '#fff',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 13,
   },
+  // Decorative elements
+  decorCircle1: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    bottom: -40,
+    right: -40,
+    zIndex: 1,
+  },
+  decorCircle2: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    top: -20,
+    right: 40,
+    zIndex: 1,
+  },
+  decorCircle3: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    top: 30,
+    right: 80,
+    zIndex: 1,
+  },
+  // Modern pagination
   paginationDots: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -696,213 +882,296 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#D0D0D0',
+    backgroundColor: '#E0E0E0',
     marginHorizontal: 4,
   },
   paginationDotActive: {
-    width: 20,
+    width: 24,
     height: 8,
-    backgroundColor: '#FF6B00',
+    borderRadius: 4,
+    backgroundColor: '#FF9800',
   },
+
+  // Loading states
   loadingContainer: {
-    height: 250,
+    height: 180,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 20,
+    marginHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
   loadingText: {
     marginTop: 10,
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
   },
   errorContainer: {
-    height: 150,
+    height: 180,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
   },
   errorText: {
     fontSize: 16,
-    color: '#EF4444',
+    color: '#EF5350',
     textAlign: 'center',
   },
   emptyContainer: {
-    height: 150,
+    height: 180,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
   },
   emptyText: {
     fontSize: 16,
-    color: '#666',
+    color: '#757575',
     textAlign: 'center',
   },
-  pizzaCard: {
-    width: width / 2 - 25,
-    backgroundColor: '#fff',
+
+  // Enhanced Popular Items Grid Layout
+  popularItemsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 15,
+  },
+  popularItemWrapper: {
+    width: '50%',
+    paddingHorizontal: 5,
+    marginBottom: 15,
+  },
+  popularItemCard: {
+    backgroundColor: 'white',
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 15,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  pizzaImage: {
+  popularItemImageWrapper: {
+    position: 'relative',
+  },
+  popularItemImage: {
     width: '100%',
-    height: 150,
+    height: 120,
+    resizeMode: 'cover',
   },
-  pizzaCardContent: {
-    padding: 15,
+  foodTypeIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    backgroundColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
   },
-  pizzaName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1c1917',
-    marginBottom: 8,
+  vegIndicator: {},
+  nonVegIndicator: {},
+  foodTypeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
-  pizzaCardFooter: {
+  vegDot: {
+    backgroundColor: '#4CAF50',
+  },
+  nonVegDot: {
+    backgroundColor: '#FF5252',
+  },
+  ratingBadge: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderTopRightRadius: 12,
+  },
+  ratingText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginLeft: 3,
+  },
+  popularItemContent: {
+    padding: 14,
+  },
+  popularItemName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 4,
+  },
+  popularItemDescription: {
+    fontSize: 12,
+    color: '#757575',
+    marginBottom: 10,
+  },
+  popularItemFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 5,
+    marginTop: 6,
   },
-  pizzaPrice: {
-    fontSize: 17,
+  popularItemPrice: {
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#FF6B00',
+    color: '#FF9800',
   },
-  addButton: {
-    backgroundColor: '#1c1917',
-    height: 30,
+  addToCartButton: {
+    backgroundColor: '#FF9800',
     width: 30,
+    height: 30,
     borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#FF9800',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4,
   },
-  addButtonText: {
-    color: '#fff',
+  addToCartIcon: {
     fontSize: 18,
+    color: 'white',
     fontWeight: 'bold',
+    lineHeight: 22,
   },
-  dealsGridContainer: {
-    paddingHorizontal: 20,
-  },
-  dealCard: {
-    backgroundColor: '#fff',
+
+  // Skeleton loading for popular items
+  popularItemSkeletonCard: {
+    backgroundColor: 'white',
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 15,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    height: 210,
   },
-  dealImage: {
+  popularItemSkeletonImage: {
     width: '100%',
-    height: 160,
+    height: 120,
+    backgroundColor: '#F0F0F0',
   },
-  dealContent: {
-    padding: 18,
+  popularItemSkeletonContent: {
+    padding: 14,
   },
-  dealTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1c1917',
+  popularItemSkeletonTitle: {
+    width: '80%',
+    height: 16,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 4,
+    marginBottom: 8,
   },
-  dealDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 6,
-    marginBottom: 14,
+  popularItemSkeletonPrice: {
+    width: '40%',
+    height: 16,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 4,
+    marginTop: 12,
   },
-  dealFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  dealPrice: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#FF6B00',
-  },
-  viewDealButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  viewDealText: {
-    color: '#FF6B00',
-    fontWeight: '600',
-    marginRight: 4,
-  },
-  pizzaGridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 20,
-    justifyContent: 'space-between',
-  },
-  pizzaCardImproved: {
-    width: width / 2 - 30,
-    backgroundColor: '#fff',
+
+  // Enhanced Store Info Section
+  storeInfoSection: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    marginTop: 10,
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(0,0,0,0.05)',
   },
-  pizzaImageImproved: {
-    width: '100%',
-    height: 130,
-    resizeMode: 'cover',
-  },
-  pizzaCardContentImproved: {
+  storeInfoHeader: {
+    backgroundColor: '#FFF8E1',
     padding: 16,
-  },
-  pizzaNameImproved: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1c1917',
-    marginBottom: 8,
-    letterSpacing: 0.2,
-  },
-  pizzaCardFooterImproved: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
-  pizzaPriceImproved: {
+  storeInfoTitle: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#FF6B00',
-    letterSpacing: 0.3,
+    fontWeight: 'bold',
+    color: '#333',
   },
-  addButtonImproved: {
-    backgroundColor: '#1c1917',
-    height: 32,
-    width: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
+  storeInfoBadge: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  storeInfoBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  storeInfoContent: {
+    padding: 16,
+  },
+  storeInfoAddress: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 4,
+  },
+  storeInfoHours: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+  },
+  storeInfoActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  storeInfoButton: {
+    flex: 1,
+    backgroundColor: '#FF9800',
+    paddingVertical: 12,
+    borderRadius: 8,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 2,
+    marginRight: 8,
   },
-  addButtonTextImproved: {
+  storeInfoButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#FF9800',
+    marginRight: 0,
+    marginLeft: 8,
+  },
+  storeInfoButtonText: {
     color: '#fff',
-    fontSize: 20,
     fontWeight: '600',
-    lineHeight: 24,
-  }
+    fontSize: 14,
+  },
+  storeInfoButtonTextSecondary: {
+    color: '#FF9800',
+    fontWeight: '600',
+    fontSize: 14,
+  },
 });
 
 export default HomeScreen;

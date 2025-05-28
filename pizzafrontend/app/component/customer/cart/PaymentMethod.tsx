@@ -425,7 +425,10 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
 
             {/* If guest user and we need to collect info */}
             {isGuest && showGuestInfoForm ? (
-                <ScrollView style={styles.content}>
+                <ScrollView 
+                    style={styles.content}
+                    contentContainerStyle={{ paddingBottom: 100 }}
+                >
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>Contact Information</Text>
                         <Text style={styles.guestFormSubtitle}>
@@ -498,7 +501,10 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 </ScrollView>
             ) : (
                 // Regular payment flow
-                <ScrollView style={styles.content}>
+                <ScrollView 
+                    style={styles.content}
+                    contentContainerStyle={{ paddingBottom: 100 }} // Added padding bottom of 100px
+                >
                     {/* Delivery Address Summary */}
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>

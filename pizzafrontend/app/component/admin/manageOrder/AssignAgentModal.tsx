@@ -35,6 +35,7 @@ interface AssignAgentModalProps {
   onAssignAgent: (agentId: string | null, agentName: string) => void;
   isProcessing: boolean;
   token?: string;
+  onRefreshAgents?: () => Promise<void>; // Add this line
 }
 
 const AssignAgentModal: React.FC<AssignAgentModalProps> = ({

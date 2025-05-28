@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   ActivityIndicator,
   SafeAreaView,
@@ -26,7 +25,6 @@ import {
   UserCircle,
   UserCog,
   Check,
-  Filter,
   Search,
   ChevronDown,
   ChevronUp,
@@ -41,6 +39,15 @@ import {
   ExternalLink
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  cancelAnimation,
+  Easing
+} from 'react-native-reanimated';
 
 interface DeliveryDetails {
   vehicleType: string;
@@ -71,6 +78,82 @@ interface Section {
 
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
 
+// Skeleton component for loading animation
+const Skeleton = ({
+  width,
+  height,
+  style,
+}: {
+  width: number | string;
+  height: number | string;
+  style?: any;
+}) => {
+  const opacity = useSharedValue(0.5);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 750, easing: Easing.ease }),
+        withTiming(0.5, { duration: 750, easing: Easing.ease })
+      ),
+      -1,
+      true
+    );
+
+    return () => {
+      cancelAnimation(opacity);
+    };
+  }, [opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          backgroundColor: '#E0E0E0',
+          borderRadius: 4,
+        },
+        animatedStyle,
+        style,
+      ]}
+    />
+  );
+};
+
+// Skeleton for user card
+const UserCardSkeleton = () => (
+  <View style={styles.userCard}>
+    <View style={styles.userCardContent}>
+      <Skeleton width={50} height={50} style={{ borderRadius: 25 }} />
+      <View style={{ marginLeft: 12, flex: 1 }}>
+        <Skeleton width={150} height={16} style={{ marginBottom: 8 }} />
+        <Skeleton width={180} height={14} style={{ marginBottom: 6 }} />
+        <Skeleton width={100} height={12} />
+      </View>
+      <Skeleton width={70} height={24} style={{ borderRadius: 12 }} />
+    </View>
+  </View>
+);
+
+// Skeleton for section header
+const SectionHeaderSkeleton = () => (
+  <View style={styles.sectionHeader}>
+    <View style={styles.sectionHeaderLeft}>
+      <Skeleton width={20} height={20} style={{ borderRadius: 10, marginRight: 8 }} />
+      <Skeleton width={100} height={16} />
+      <View style={{ marginLeft: 8 }}>
+        <Skeleton width={24} height={16} style={{ borderRadius: 8 }} />
+      </View>
+    </View>
+    <Skeleton width={20} height={20} />
+  </View>
+);
+
 const UserManagement = () => {
   const router = useRouter();
   const { token } = useSelector((state: RootState) => state.auth);
@@ -82,7 +165,6 @@ const UserManagement = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [filterRole, setFilterRole] = useState<string | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
 
   // New states for delivery agent details
@@ -148,6 +230,7 @@ const UserManagement = () => {
     const delivery = userList.filter(user => user.role === 'delivery');
     const admins = userList.filter(user => user.role === 'admin');
 
+    // Preserve the expanded state when updating data
     setSections(prevSections => [
       { ...prevSections[0], data: customers },
       { ...prevSections[1], data: delivery },
@@ -193,9 +276,9 @@ const UserManagement = () => {
       const data = await response.json();
       setUsers(data);
 
-      // If there's a filter or search, apply them
-      if (filterRole || searchQuery) {
-        applyFilters(data, searchQuery, filterRole);
+      // If there's a search, apply it
+      if (searchQuery) {
+        applySearch(data, searchQuery);
       } else {
         // Otherwise, organize by role
         setFilteredUsers(data);
@@ -208,10 +291,10 @@ const UserManagement = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token, searchQuery, filterRole, organizeUsersByRole]);
+  }, [token, searchQuery, organizeUsersByRole]);
 
-  // Apply filters to users
-  const applyFilters = (data: User[], query: string, role: string | null) => {
+  // Apply search to users
+  const applySearch = (data: User[], query: string) => {
     let result = [...data];
 
     // Apply search query filter
@@ -223,11 +306,6 @@ const UserManagement = () => {
       );
     }
 
-    // Apply role filter
-    if (role) {
-      result = result.filter(user => user.role === role);
-    }
-
     setFilteredUsers(result);
     organizeUsersByRole(result);
   };
@@ -235,13 +313,7 @@ const UserManagement = () => {
   // Handle search
   const handleSearch = (text: string) => {
     setSearchQuery(text);
-    applyFilters(users, text, filterRole);
-  };
-
-  // Handle role filter
-  const handleFilterByRole = (role: string | null) => {
-    setFilterRole(role);
-    applyFilters(users, searchQuery, role);
+    applySearch(users, text);
   };
 
   // Update user role
@@ -274,9 +346,9 @@ const UserManagement = () => {
 
       setUsers(updatedUsers);
 
-      // If there's a filter or search, apply them
-      if (filterRole || searchQuery) {
-        applyFilters(updatedUsers, searchQuery, filterRole);
+      // If there's a search, apply it
+      if (searchQuery) {
+        applySearch(updatedUsers, searchQuery);
       } else {
         // Otherwise just update the sections
         organizeUsersByRole(updatedUsers);
@@ -501,32 +573,38 @@ const UserManagement = () => {
   );
 
   // Render section header
-  // Change your renderSectionHeader function to match the expected type
-  const renderSectionHeader = ({ section }: { section: Section }) => (
-    <TouchableOpacity
-      style={styles.sectionHeader}
-      onPress={() => {
-        // Find the index of the section in the sections array
-        const index = sections.findIndex(s => s.title === section.title);
-        if (index !== -1) {
-          toggleSection(index);
-        }
-      }}
-      activeOpacity={0.7}
-    >
-      <View style={styles.sectionHeaderLeft}>
-        {section.icon}
-        <Text style={styles.sectionTitle}>{section.title}</Text>
-        <View style={styles.userCountBadge}>
-          <Text style={styles.userCountText}>{section.data.length}</Text>
+  const renderSectionHeader = ({ section }: { section: Section }) => {
+    // Find the index of the section in the sections array
+    const index = sections.findIndex(s => s.title === section.title);
+
+    // Get the actual data length from the original sections array
+    const dataCount = index !== -1 ? sections[index].data.length : 0;
+
+    return (
+      <TouchableOpacity
+        style={styles.sectionHeader}
+        onPress={() => {
+          if (index !== -1) {
+            toggleSection(index);
+          }
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={styles.sectionHeaderLeft}>
+          {section.icon}
+          <Text style={styles.sectionTitle}>{section.title}</Text>
+          <View style={styles.userCountBadge}>
+            <Text style={styles.userCountText}>{dataCount}</Text>
+          </View>
         </View>
-      </View>
-      {section.expanded ?
-        <ChevronUp size={20} color="#666" /> :
-        <ChevronDown size={20} color="#666" />
-      }
-    </TouchableOpacity>
-  );
+        {sections[index].expanded ? (
+          <ChevronUp size={20} color="#666" />
+        ) : (
+          <ChevronDown size={20} color="#666" />
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   // Helper function to capitalize first letter
   const capitalizeFirstLetter = (string: string) => {
@@ -534,33 +612,32 @@ const UserManagement = () => {
     return string.charAt(0).toUpperCase() + string.slice(1);
   };
 
-  // Render loading state
-  if (loading && !refreshing) {
-    return (
-      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#FF6B00" />
-        <Text style={styles.loadingText}>Loading users...</Text>
-      </SafeAreaView>
-    );
-  }
+  // Render skeleton loading
+  const renderSkeletonLoading = () => (
+    <>
+      {[0, 1, 2].map((sectionIndex) => (
+        <React.Fragment key={`section-skeleton-${sectionIndex}`}>
+          <SectionHeaderSkeleton />
+          {[1, 2, 3].map((itemIndex) => (
+            <UserCardSkeleton key={`user-skeleton-${sectionIndex}-${itemIndex}`} />
+          ))}
+        </React.Fragment>
+      ))}
+    </>
+  );
 
-  // Render error state
-  if (error && !refreshing) {
-    return (
-      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={() => fetchUsers()}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
+  // Create sections with collapse functionality
+  const renderableSections = sections.map(section => ({
+    ...section,
+    // If section is not expanded, return empty array instead of the data
+    data: section.expanded ? section.data : []
+  }));
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar backgroundColor="#f5f5f5" barStyle="dark-content" />
 
-      {/* Header */}
+      {/* Header - Always visible */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <ChevronLeft size={24} color="#333" />
@@ -569,7 +646,7 @@ const UserManagement = () => {
         <View style={{ width: 24 }} />
       </View>
 
-      {/* Search and Filter */}
+      {/* Search */}
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
           <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
@@ -581,73 +658,55 @@ const UserManagement = () => {
             placeholderTextColor="#9CA3AF"
           />
         </View>
-
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => {
-            Alert.alert(
-              'Filter by Role',
-              'Select role to filter by:',
-              [
-                { text: 'Show All', onPress: () => handleFilterByRole(null) },
-                { text: 'Admin', onPress: () => handleFilterByRole('admin') },
-                { text: 'Delivery', onPress: () => handleFilterByRole('delivery') },
-                { text: 'Customer', onPress: () => handleFilterByRole('customer') },
-                { text: 'Cancel', style: 'cancel' }
-              ]
-            );
-          }}
-        >
-          <Filter size={20} color="#333" />
-        </TouchableOpacity>
       </View>
 
-      {/* Filter badge */}
-      {filterRole && (
-        <View style={styles.filterBadgeContainer}>
-          <View style={styles.filterBadge}>
-            <Text style={styles.filterBadgeText}>Role: {filterRole}</Text>
-            <TouchableOpacity onPress={() => handleFilterByRole(null)}>
-              <Text style={styles.filterClearText}>×</Text>
-            </TouchableOpacity>
-          </View>
+      {/* Content area with loading state */}
+      {loading && !refreshing ? (
+        <ScrollView style={styles.contentContainer}>
+          {renderSkeletonLoading()}
+        </ScrollView>
+      ) : error && !refreshing ? (
+        <View style={[styles.contentContainer, styles.centerContent]}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => fetchUsers()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
-      )}
-
-      {/* User list by sections */}
-      <SectionList
-        sections={sections}
-        keyExtractor={(item) => item._id}
-        renderItem={renderUserItem}
-        renderSectionHeader={renderSectionHeader}
-        contentContainerStyle={styles.listContainer}
-        stickySectionHeadersEnabled={true}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={["#FF6B00"]}
-            tintColor="#FF6B00"
-          />
-        }
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Users size={50} color="#D1D5DB" />
-            <Text style={styles.emptyText}>
-              {searchQuery || filterRole
-                ? 'No users match the current filters'
-                : 'No users found'}
-            </Text>
-          </View>
-        )}
-        renderSectionFooter={({ section }) => (
-          section.data.length === 0 && section.expanded ? (
-            <View style={styles.emptySectionContainer}>
-              <Text style={styles.emptySectionText}>No {section.title.toLowerCase()} found</Text>
+      ) : (
+        <SectionList
+          sections={renderableSections}
+          keyExtractor={(item) => item._id}
+          renderItem={renderUserItem}
+          renderSectionHeader={renderSectionHeader}
+          contentContainerStyle={styles.listContainer}
+          stickySectionHeadersEnabled={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#FF6B00"]}
+              tintColor="#FF6B00"
+            />
+          }
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Users size={50} color="#D1D5DB" />
+              <Text style={styles.emptyText}>
+                {searchQuery
+                  ? 'No users match your search'
+                  : 'No users found'}
+              </Text>
             </View>
-          ) : null
-        )}
-      />
+          )}
+          renderSectionFooter={({ section }) => (
+            section.data.length === 0 && section.expanded ? (
+              <View style={styles.emptySectionContainer}>
+                <Text style={styles.emptySectionText}>No {section.title.toLowerCase()} found</Text>
+              </View>
+            ) : null
+          )}
+        />
+      )}
 
       {/* Role Update Modal */}
       <Modal
@@ -694,29 +753,6 @@ const UserManagement = () => {
                 </View>
                 {selectedUser?.role === 'customer' && (
                   <Check size={20} color="#10B981" />
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.roleOption,
-                  selectedUser?.role === 'delivery' && styles.activeRoleOption
-                ]}
-                onPress={() => {
-                  if (selectedUser && selectedUser.role !== 'delivery') {
-                    updateUserRole(selectedUser._id, 'delivery');
-                  } else {
-                    setModalVisible(false);
-                  }
-                }}
-                disabled={updatingUserId !== null}
-              >
-                <View style={styles.roleOptionContent}>
-                  <User size={20} color="#F59E0B" />
-                  <Text style={styles.roleOptionText}>Delivery Agent</Text>
-                </View>
-                {selectedUser?.role === 'delivery' && (
-                  <Check size={20} color="#F59E0B" />
                 )}
               </TouchableOpacity>
 
@@ -1041,6 +1077,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     paddingTop: STATUSBAR_HEIGHT,
   },
+  contentContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
   centerContent: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -1088,7 +1128,6 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   searchContainer: {
-    flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#fff',
@@ -1096,13 +1135,11 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   searchInputContainer: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F3F4F6',
     borderRadius: 8,
     paddingHorizontal: 12,
-    marginRight: 12,
   },
   searchIcon: {
     marginRight: 8,
@@ -1112,40 +1149,6 @@ const styles = StyleSheet.create({
     height: 40,
     color: '#111827',
     fontSize: 16,
-  },
-  filterButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  filterBadgeContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#fff',
-  },
-  filterBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  filterBadgeText: {
-    color: '#3B82F6',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  filterClearText: {
-    color: '#3B82F6',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 6,
   },
   listContainer: {
     paddingHorizontal: 16,

@@ -14,10 +14,19 @@ import {
   Alert,
   Modal
 } from 'react-native';
-import { Filter, Search, X, ShoppingBag, AlertCircle } from 'lucide-react-native';
+import { Filter, Search, X, ShoppingBag, AlertCircle, ChevronDown } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/redux/store';
 import { API_URL } from '@/config';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  withSequence,
+  cancelAnimation,
+  Easing
+} from 'react-native-reanimated';
 
 import OrderCard from '../component/admin/manageOrder/orderCard';
 import OrderDetailsModal from '../component/admin/manageOrder/orderDetailsModal';
@@ -30,6 +39,24 @@ export interface AddOnOption {
   name: string;
   option?: string;
   price: number;
+}
+
+interface FilterModalProps {
+  visible: boolean;
+  filters: OrderFilters;
+  deliveryAgents: DeliveryAgent[];
+  statusOptions: OrderStatus[];
+  onClose: () => void;
+  onApply: (filters: OrderFilters) => void;
+  onReset: () => void;
+  onFilterChange: (filterType: string, value: string) => void;
+  getStatusColor: (status: string) => string;
+}
+
+interface OrderFilters {
+  date: string;
+  status: string;
+  deliveryAgent: string;
 }
 
 export interface OrderItem {
@@ -46,7 +73,8 @@ export interface OrderItem {
   toppings?: AddOnOption[];
   specialInstructions?: string;
   hasCustomizations?: boolean;
-  customizationCount?: number; // Added to match the 'admin' format
+  customizationCount?: number;
+  image?: string;
 }
 
 export interface Order {
@@ -57,8 +85,12 @@ export interface Order {
   deliveryAgent: string;
   date: string;
   time: string;
-  createdAt?: string; // Added to match baseFormat
+  createdAt?: string;
   amount: number;
+  subTotal?: number;
+  tax?: number;
+  deliveryFee?: number;
+  discounts?: number;
   items: OrderItem[];
   address: string;
   fullAddress?: string;
@@ -71,7 +103,7 @@ export interface Order {
     time: string;
     note: string;
   }>;
-  totalItemsCount?: number; // Added to match the 'admin' format
+  totalItemsCount?: number;
 }
 
 interface DeliveryAgent {
@@ -80,7 +112,14 @@ interface DeliveryAgent {
   email: string;
   role: string;
   isOnline?: boolean;
-  lastSeen?: string;
+  lastActiveTime?: string;
+  deliveryDetails?: {
+    vehicleType?: string;
+    isVerified?: boolean;
+    status?: string;
+    isOnline?: boolean;
+    lastActiveTime?: string;
+  };
 }
 
 interface OrdersApiResponse {
@@ -93,13 +132,14 @@ interface OrdersApiResponse {
 // Define the type for the OrderDetailsModal props
 interface OrderDetailsModalProps {
   visible: boolean;
-  order: Order;
+  order: Order | null;
   onClose: () => void;
   onUpdateStatus: () => void;
   onAssignAgent: () => void;
-  onUpdatePayment: () => void; // Add this prop to fix the type error
+  onUpdatePayment: () => void;
   getStatusColor: (status: string) => string;
   getPaymentStatusColor: (status: string) => string;
+  isLoading?: boolean;
 }
 
 // Define the type for the UpdatePaymentStatusModal props
@@ -114,6 +154,112 @@ interface UpdatePaymentStatusModalProps {
 
 type OrderStatus = 'Pending' | 'Preparing' | 'Out for delivery' | 'Delivered' | 'Cancelled';
 
+// Skeleton component for loading animation
+const Skeleton = ({
+  width,
+  height,
+  style,
+}: {
+  width: number | string;
+  height: number | string;
+  style?: any;
+}) => {
+  const opacity = useSharedValue(0.5);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 750, easing: Easing.ease }),
+        withTiming(0.5, { duration: 750, easing: Easing.ease })
+      ),
+      -1,
+      true
+    );
+
+    return () => {
+      cancelAnimation(opacity);
+    };
+  }, [opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          backgroundColor: '#E0E0E0',
+          borderRadius: 4,
+        },
+        animatedStyle,
+        style,
+      ]}
+    />
+  );
+};
+
+// Skeleton for order card
+const OrderCardSkeleton = () => (
+  <View style={styles.orderCardSkeleton}>
+    <View style={styles.orderCardHeader}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Skeleton width={24} height={24} style={{ borderRadius: 12, marginRight: 12 }} />
+        <Skeleton width={120} height={20} />
+      </View>
+      <Skeleton width={80} height={24} style={{ borderRadius: 12 }} />
+    </View>
+
+    <View style={styles.orderCardBody}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+        <Skeleton width={150} height={16} />
+        <Skeleton width={80} height={16} />
+      </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+        <Skeleton width={120} height={16} />
+        <Skeleton width={60} height={16} />
+      </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        <Skeleton width={140} height={16} />
+        <Skeleton width={70} height={16} />
+      </View>
+    </View>
+
+    <View style={styles.orderCardFooter}>
+      <Skeleton width={100} height={18} />
+      <View style={{ flexDirection: 'row' }}>
+        <Skeleton width={40} height={30} style={{ borderRadius: 4, marginRight: 8 }} />
+        <Skeleton width={40} height={30} style={{ borderRadius: 4 }} />
+      </View>
+    </View>
+  </View>
+);
+
+// Skeleton for header section
+const HeaderSkeleton = () => (
+  <>
+    <View style={styles.header}>
+      <Skeleton width={180} height={28} style={{ marginBottom: 0 }} />
+    </View>
+
+    <View style={styles.searchContainer}>
+      <Skeleton width="75%" height={44} style={{ borderRadius: 10, marginRight: 12 }} />
+      <Skeleton width={90} height={44} style={{ borderRadius: 10 }} />
+    </View>
+  </>
+);
+
+// Load more skeleton component
+const LoadMoreSkeleton = () => (
+  <View style={styles.loadMoreSkeleton}>
+    {[1, 2].map((_, index) => (
+      <OrderCardSkeleton key={index} />
+    ))}
+  </View>
+);
+
 const AdminOrders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -123,8 +269,9 @@ const AdminOrders = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
 
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<OrderFilters>({
     date: '',
     status: '',
     deliveryAgent: ''
@@ -132,16 +279,20 @@ const AdminOrders = () => {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
   const [deliveryAgents, setDeliveryAgents] = useState<DeliveryAgent[]>([]);
 
   const statusOptions: OrderStatus[] = ['Pending', 'Preparing', 'Out for delivery', 'Delivered', 'Cancelled'];
 
-  const { token } = useSelector((state: RootState) => state.auth);
+  const { token, role } = useSelector((state: RootState) => state.auth);
 
   // Function to fetch detailed order information
   const fetchOrderDetails = async (orderId: string) => {
     try {
       if (!token) return;
+      
+      setLoadingOrderDetails(true);
+      setSelectedOrder(null);
 
       const response = await fetch(`${API_URL}/api/orders/${orderId}`, {
         method: 'GET',
@@ -158,17 +309,21 @@ const AdminOrders = () => {
 
       const data = await response.json();
 
-      // The response is now formatted by the backend's adminDetail formatter
+      // Format the order for display
       const formattedOrder: Order = {
         id: data.orderNumber || data.id,
         _id: data._id,
         customer: data.customerName,
         status: data.status,
-        deliveryAgent: data.deliveryAgentName,
-        date: data.date,
-        time: data.time,
+        deliveryAgent: data.deliveryAgentName || 'Unassigned',
+        date: new Date(data.createdAt).toLocaleDateString(),
+        time: new Date(data.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         createdAt: data.createdAt,
         amount: data.amount,
+        subTotal: data.subTotal,
+        tax: data.tax,
+        deliveryFee: data.deliveryFee,
+        discounts: data.discounts,
         items: data.items.map((item: any): OrderItem => ({
           name: item.name || "Unknown Item",
           quantity: item.quantity || 1,
@@ -183,24 +338,27 @@ const AdminOrders = () => {
           specialInstructions: item.specialInstructions || "",
           totalItemPrice: item.totalItemPrice || item.price || 0,
           hasCustomizations: item.hasCustomizations || false,
-          customizationCount: item.customizationCount || 0
+          customizationCount: item.customizationCount || 0,
+          image: item.image || null
         })),
-        address: data.fullAddress,
-        fullAddress: data.fullAddress,
+        address: data.fullAddress || data.address?.street || '',
+        fullAddress: data.fullAddress || (data.address ? `${data.address.street}, ${data.address.city}` : ''),
         notes: data.notes || '',
         paymentMethod: data.paymentMethod,
-        paymentStatus: data.paymentStatus,
+        paymentStatus: data.paymentStatus || 'Pending',
         customerPhone: data.customerPhone,
         statusUpdates: data.statusUpdates || [],
-        totalItemsCount: data.totalItemsCount
+        totalItemsCount: data.totalItemsCount || data.items.length
       };
 
       setSelectedOrder(formattedOrder);
       setDetailsModalVisible(true);
+      setLoadingOrderDetails(false);
     } catch (err) {
       console.error('Error fetching order details:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to load order details';
       Alert.alert('Error', `${errorMessage}. Please try again.`);
+      setLoadingOrderDetails(false);
     }
   };
 
@@ -239,7 +397,7 @@ const AdminOrders = () => {
       }
 
       if (searchQuery) {
-        url = `${API_URL}/api/orders/search?query=${searchQuery}`;
+        url = `${API_URL}/api/orders/search?query=${searchQuery}&page=${page}`;
       }
 
       console.log('Fetching orders from:', url);
@@ -258,16 +416,21 @@ const AdminOrders = () => {
       }
 
       const data: OrdersApiResponse = await response.json();
-      console.log(`Received ${data.orders?.length || 0} orders from API`);
+      console.log(`Received ${data.orders?.length || 0} orders from API, page ${data.page} of ${data.pages}`);
 
       // Process orders to ensure they have all required fields
       const processedOrders = data.orders.map(order => ({
         ...order,
+        // Format dates nicely
+        date: new Date(order.createdAt || Date.now()).toLocaleDateString(),
+        time: new Date(order.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         // Ensure these fields exist
         items: Array.isArray(order.items) ? order.items : [],
-        status: order.status || 'Unknown',
+        status: order.status || 'Pending',
         customerPhone: order.customerPhone || 'N/A',
-        totalItemsCount: order.totalItemsCount || (order.items?.length || 0)
+        totalItemsCount: order.totalItemsCount || (order.items?.length || 0),
+        paymentStatus: order.paymentStatus || 'Pending',
+        deliveryAgent: order.deliveryAgent || 'Unassigned'
       }));
 
       if (refresh || page === 1) {
@@ -278,6 +441,7 @@ const AdminOrders = () => {
 
       setCurrentPage(data.page);
       setTotalPages(data.pages);
+      setTotalOrders(data.total);
       setError(null);
     } catch (err) {
       console.error('Error fetching orders:', err);
@@ -309,14 +473,14 @@ const AdminOrders = () => {
 
       const data = await response.json();
 
-      // Process agents to ensure they have all required fields
-      const agentsWithOnlineStatus = data.map((agent: DeliveryAgent) => ({
+      // Process agents and ensure they have all required fields
+      const processedAgents = data.map((agent: DeliveryAgent) => ({
         ...agent,
-        isOnline: agent.isOnline !== undefined ? agent.isOnline : Math.random() > 0.5, // Fallback for demo
-        lastSeen: agent.lastSeen || new Date(Date.now() - Math.random() * 86400000 * 3).toISOString() // Fallback for demo
+        isOnline: agent.deliveryDetails?.isOnline || false,
+        lastActiveTime: agent.deliveryDetails?.lastActiveTime || new Date().toISOString()
       }));
 
-      setDeliveryAgents(agentsWithOnlineStatus);
+      setDeliveryAgents(processedAgents);
     } catch (err) {
       console.error('Error fetching delivery agents:', err);
       // We don't set a global error here to avoid blocking the main UI
@@ -369,6 +533,9 @@ const AdminOrders = () => {
         [{ text: 'OK' }]
       );
 
+      // Close modal after assignment
+      setAssignAgentModalVisible(false);
+
       // Fetch orders again to ensure consistency with backend
       setTimeout(() => {
         fetchOrders(currentPage);
@@ -403,7 +570,7 @@ const AdminOrders = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        
+
         // Handle specific error responses
         if (response.status === 400) {
           throw new Error(errorData.message || `Cannot update order to ${status} status`);
@@ -425,8 +592,8 @@ const AdminOrders = () => {
       });
 
       setOrders(updatedOrders);
-      setSelectedOrder(prevOrder => prevOrder ? { 
-        ...prevOrder, 
+      setSelectedOrder(prevOrder => prevOrder ? {
+        ...prevOrder,
         status,
         statusUpdates: prevOrder.statusUpdates ? [
           ...prevOrder.statusUpdates,
@@ -437,10 +604,13 @@ const AdminOrders = () => {
           }
         ] : []
       } : null);
-      
+
+      // Close modal after status update
+      setUpdateStatusModalVisible(false);
+
       // Show success message
       Alert.alert('Success', `Order status updated to ${status}`, [{ text: 'OK' }]);
-      
+
     } catch (err) {
       console.error('Error updating order status:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -450,13 +620,13 @@ const AdminOrders = () => {
     }
   };
 
-  // New function to update payment status
+  // Function to update payment status
   const updatePaymentStatus = async (paymentStatus: string) => {
     if (!token || !selectedOrder) return;
     setIsProcessing(true);
 
     try {
-      // Using the new payment status update endpoint
+      // Using the payment status update endpoint
       const response = await fetch(`${API_URL}/api/orders/${selectedOrder._id}/payment`, {
         method: 'PUT',
         headers: {
@@ -488,8 +658,8 @@ const AdminOrders = () => {
       });
 
       setOrders(updatedOrders);
-      setSelectedOrder(prevOrder => prevOrder ? { 
-        ...prevOrder, 
+      setSelectedOrder(prevOrder => prevOrder ? {
+        ...prevOrder,
         paymentStatus,
         statusUpdates: prevOrder.statusUpdates ? [
           ...prevOrder.statusUpdates,
@@ -500,10 +670,13 @@ const AdminOrders = () => {
           }
         ] : []
       } : null);
-      
+
+      // Close modal after payment status update
+      setUpdatePaymentModalVisible(false);
+
       // Show success message
       Alert.alert('Success', `Payment status updated to ${paymentStatus}`, [{ text: 'OK' }]);
-      
+
     } catch (err) {
       console.error('Error updating payment status:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -513,9 +686,11 @@ const AdminOrders = () => {
     }
   };
 
-  const applyFilters = () => {
+  const applyFilters = (newFilters: OrderFilters) => {
+    setFilters(newFilters);
     setCurrentPage(1);
     fetchOrders(1);
+    setFilterModalVisible(false);
   };
 
   const resetFilters = () => {
@@ -557,7 +732,8 @@ const AdminOrders = () => {
 
   const onRefresh = useCallback(() => {
     fetchOrders(1, true);
-  }, [fetchOrders]);
+    fetchDeliveryAgents();
+  }, [fetchOrders, fetchDeliveryAgents]);
 
   const handleLoadMore = useCallback(() => {
     if (currentPage < totalPages && !loadingMore && !loading) {
@@ -565,16 +741,20 @@ const AdminOrders = () => {
     }
   }, [currentPage, totalPages, loadingMore, loading, fetchOrders]);
 
+  // Render footer with skeleton for loading more
   const renderFooter = () => {
     if (!loadingMore) return null;
-
-    return (
-      <View style={styles.loadingMore}>
-        <ActivityIndicator size="small" color="#FF6B00" />
-        <Text style={styles.loadingMoreText}>Loading more orders...</Text>
-      </View>
-    );
+    return <LoadMoreSkeleton />;
   };
+
+  // Render skeleton loading for orders list
+  const renderSkeletonLoading = () => (
+    <View style={styles.ordersList}>
+      {Array(6).fill(0).map((_, index) => (
+        <OrderCardSkeleton key={index} />
+      ))}
+    </View>
+  );
 
   useEffect(() => {
     fetchOrders(1);
@@ -593,119 +773,131 @@ const AdminOrders = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Orders Management</Text>
-      </View>
-
-      {/* Search and Filter Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchInputContainer}>
-          <Search size={20} color="#888" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search orders..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmitEditing={handleSearch}
-            returnKeyType="search"
-          />
-          {searchQuery ? (
-            <TouchableOpacity onPress={() => {
-              setSearchQuery('');
-              fetchOrders(1);
-            }}>
-              <X size={18} color="#888" />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setFilterModalVisible(true)}
-        >
-          <Filter size={20} color="#FFF" />
-          <Text style={styles.filterButtonText}>Filter</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Filter status bar */}
-      {(filters.date || filters.status || filters.deliveryAgent) && (
-        <View style={styles.activeFiltersBar}>
-          <Text style={styles.activeFiltersText}>
-            Filters:
-            {filters.date ? ` Date: ${filters.date}` : ''}
-            {filters.status ? ` Status: ${filters.status}` : ''}
-            {filters.deliveryAgent ? ` Agent: ${filters.deliveryAgent}` : ''}
-          </Text>
-          <TouchableOpacity onPress={resetFilters} style={styles.clearFiltersButton}>
-            <Text style={styles.clearFiltersText}>Clear All</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Error message */}
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => fetchOrders(1)}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Orders list */}
-      {loading && orders.length === 0 ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF6B00" />
-          <Text style={styles.loadingText}>Loading orders...</Text>
-        </View>
+      {loading && !refreshing ? (
+        <>
+          <HeaderSkeleton />
+          {renderSkeletonLoading()}
+        </>
       ) : (
-        <FlatList
-          data={orders}
-          renderItem={({ item }) => (
-            <OrderCard
-              order={item}
-              onPress={() => {
-                // Use fetchOrderDetails to get detailed order info
-                fetchOrderDetails(item._id);
-              }}
-              onUpdateStatus={() => {
-                setSelectedOrder(item);
-                setUpdateStatusModalVisible(true);
-              }}
-              onAssignAgent={() => {
-                setSelectedOrder(item);
-                setAssignAgentModalVisible(true);
-              }}
-              getStatusColor={getStatusColor}
-            />
-          )}
-          keyExtractor={(item) => item._id}
-          contentContainerStyle={styles.ordersList}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#FF6B00"]} />
-          }
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.3}
-          ListFooterComponent={renderFooter}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyListContainer}>
-              <ShoppingBag size={60} color="#E0E0E0" />
-              <Text style={styles.emptyListText}>No orders found</Text>
-              <Text style={styles.emptyListSubtext}>
-                {searchQuery || filters.date || filters.status || filters.deliveryAgent
-                  ? "Try adjusting your filters"
-                  : "Orders will appear here when customers place them"}
-              </Text>
-              {(searchQuery || filters.date || filters.status || filters.deliveryAgent) && (
-                <TouchableOpacity style={styles.resetSearchButton} onPress={resetFilters}>
-                  <Text style={styles.resetSearchButtonText}>Reset Filters</Text>
+        <>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>Orders Management</Text>
+            {totalOrders > 0 && (
+              <Text style={styles.ordersCount}>{totalOrders} total orders</Text>
+            )}
+          </View>
+
+          {/* Search and Filter Bar */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputContainer}>
+              <Search size={20} color="#888" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search orders by ID, customer or phone..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onSubmitEditing={handleSearch}
+                returnKeyType="search"
+              />
+              {searchQuery ? (
+                <TouchableOpacity onPress={() => {
+                  setSearchQuery('');
+                  fetchOrders(1);
+                }}>
+                  <X size={18} color="#888" />
                 </TouchableOpacity>
-              )}
+              ) : null}
+            </View>
+
+            <TouchableOpacity
+              style={styles.filterButton}
+              onPress={() => setFilterModalVisible(true)}
+            >
+              <Filter size={20} color="#FFF" />
+              <Text style={styles.filterButtonText}>Filter</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Filter status bar */}
+          {(filters.date || filters.status || filters.deliveryAgent) && (
+            <View style={styles.activeFiltersBar}>
+              <Text style={styles.activeFiltersText}>
+                Filters:
+                {filters.date ? ` Date: ${filters.date}` : ''}
+                {filters.status ? ` Status: ${filters.status}` : ''}
+                {filters.deliveryAgent ? ` Agent: ${filters.deliveryAgent}` : ''}
+              </Text>
+              <TouchableOpacity onPress={resetFilters} style={styles.clearFiltersButton}>
+                <Text style={styles.clearFiltersText}>Clear All</Text>
+              </TouchableOpacity>
             </View>
           )}
-        />
+
+          {/* Error message */}
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={() => fetchOrders(1)}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Orders list with infinite scroll */}
+          <FlatList
+            data={orders}
+            renderItem={({ item }) => (
+              <OrderCard
+                order={item}
+                onPress={() => {
+                  // Use fetchOrderDetails to get detailed order info
+                  fetchOrderDetails(item._id);
+                }}
+                onUpdateStatus={() => {
+                  setSelectedOrder(item);
+                  setUpdateStatusModalVisible(true);
+                }}
+                onAssignAgent={() => {
+                  setSelectedOrder(item);
+                  setAssignAgentModalVisible(true);
+                }}
+                getStatusColor={getStatusColor}
+              />
+            )}
+            keyExtractor={(item) => item._id}
+            contentContainerStyle={styles.ordersList}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#FF6B00"]} />
+            }
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={renderFooter}
+            ListEmptyComponent={() => (
+              <View style={styles.emptyListContainer}>
+                <ShoppingBag size={60} color="#E0E0E0" />
+                <Text style={styles.emptyListText}>No orders found</Text>
+                <Text style={styles.emptyListSubtext}>
+                  {searchQuery || filters.date || filters.status || filters.deliveryAgent
+                    ? "Try adjusting your filters"
+                    : "Orders will appear here when customers place them"}
+                </Text>
+                {(searchQuery || filters.date || filters.status || filters.deliveryAgent) && (
+                  <TouchableOpacity style={styles.resetSearchButton} onPress={resetFilters}>
+                    <Text style={styles.resetSearchButtonText}>Reset Filters</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          />
+          
+          {/* Pagination info */}
+          {totalPages > 1 && (
+            <View style={styles.paginationInfo}>
+              <Text style={styles.paginationText}>Page {currentPage} of {totalPages}</Text>
+            </View>
+          )}
+        </>
       )}
 
       {/* Order Details Modal */}
@@ -728,6 +920,7 @@ const AdminOrders = () => {
           }}
           getStatusColor={getStatusColor}
           getPaymentStatusColor={getPaymentStatusColor}
+          isLoading={loadingOrderDetails}
         />
       )}
 
@@ -752,6 +945,7 @@ const AdminOrders = () => {
           onClose={() => setAssignAgentModalVisible(false)}
           onAssignAgent={assignDeliveryAgent}
           isProcessing={isProcessing}
+          onRefreshAgents={fetchDeliveryAgents}
         />
       )}
 
@@ -762,9 +956,9 @@ const AdminOrders = () => {
         deliveryAgents={deliveryAgents}
         statusOptions={statusOptions}
         onClose={() => setFilterModalVisible(false)}
-        onApply={applyFilters}
+        onApply={() => applyFilters(filters)} 
         onReset={resetFilters}
-        onFilterChange={(filterType, value) => setFilters({ ...filters, [filterType]: value })}
+        onFilterChange={(filterType, value) => setFilters(prev => ({ ...prev, [filterType]: value }))}
         getStatusColor={getStatusColor}
       />
 
@@ -784,16 +978,16 @@ const AdminOrders = () => {
 };
 
 // Create a new component for updating payment status with proper types
-const UpdatePaymentStatusModal = ({ 
-  visible, 
-  order, 
-  onClose, 
-  onUpdatePaymentStatus, 
+const UpdatePaymentStatusModal = ({
+  visible,
+  order,
+  onClose,
+  onUpdatePaymentStatus,
   getPaymentStatusColor,
-  isProcessing 
+  isProcessing
 }: UpdatePaymentStatusModalProps) => {
   const paymentStatusOptions = ['Pending', 'Completed', 'Failed', 'Refunded'];
-  
+
   return (
     <Modal
       animationType="slide"
@@ -809,26 +1003,26 @@ const UpdatePaymentStatusModal = ({
               <X size={24} color="#333" />
             </TouchableOpacity>
           </View>
-          
+
           <Text style={modalStyles.orderInfo}>
             Order #{order?.id}
             {order?.paymentMethod ? ` • ${order.paymentMethod}` : ''}
           </Text>
 
           <Text style={modalStyles.currentStatus}>
-            Current payment status: 
-            <Text style={{ 
+            Current payment status:
+            <Text style={{
               color: getPaymentStatusColor(order?.paymentStatus || 'Pending'),
               fontWeight: 'bold'
             }}>
               {' '}{order?.paymentStatus || 'Pending'}
             </Text>
           </Text>
-          
+
           <View style={modalStyles.divider} />
-          
+
           <Text style={modalStyles.sectionTitle}>Select new payment status</Text>
-          
+
           {isProcessing ? (
             <View style={modalStyles.loadingContainer}>
               <ActivityIndicator size="large" color="#FF6B00" />
@@ -858,7 +1052,7 @@ const UpdatePaymentStatusModal = ({
                   </TouchableOpacity>
                 ))}
               </ScrollView>
-              
+
               <TouchableOpacity
                 style={modalStyles.closeButton}
                 onPress={onClose}
@@ -891,6 +1085,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
   },
+  ordersCount: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -922,7 +1121,7 @@ const styles = StyleSheet.create({
   filterButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF6B00',
+    backgroundColor: '#1F2937',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 10,
@@ -995,7 +1194,10 @@ const styles = StyleSheet.create({
   },
   ordersList: {
     padding: 16,
-    paddingBottom: 20,
+    paddingBottom: 100,
+  },
+  loadMoreSkeleton: {
+    paddingVertical: 8,
   },
   loadingMore: {
     flexDirection: 'row',
@@ -1037,6 +1239,47 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '500',
   },
+  paginationInfo: {
+    backgroundColor: '#FFF',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEEE',
+    alignItems: 'center',
+  },
+  paginationText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  // Skeleton styles
+  orderCardSkeleton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  orderCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  orderCardBody: {
+    marginBottom: 12,
+  },
+  orderCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEEE',
+  }
 });
 
 const modalStyles = StyleSheet.create({

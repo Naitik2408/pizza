@@ -12,7 +12,8 @@ import {
   ScrollView,
   Modal,
   Switch,
-  RefreshControl
+  RefreshControl,
+  Dimensions
 } from 'react-native';
 import {
   X,
@@ -32,6 +33,15 @@ import { RootState } from '../../redux/store';
 import { API_URL } from '../../config';
 import AddMenuItem from '../component/admin/manageMenu/AddMenuItem';
 import EditMenuItem from '../component/admin/manageMenu/EditMenuItem';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  withSequence,
+  cancelAnimation,
+  Easing
+} from 'react-native-reanimated';
 
 // Define types
 type Category = 'Pizza' | 'Burger' | 'Grilled Sandwich' | 'Special Combo' | 'Pasta' | 'Noodles' | 'Snacks' | 'Milkshake' | 'Cold Drink' | 'Rice Item' | 'Sweets' | 'Sides';
@@ -79,6 +89,94 @@ interface MenuItem {
   hasAddOns: boolean;
   addOnGroups: AddOnGroup[];
 }
+
+// Skeleton component for loading animation
+const Skeleton = ({
+  width,
+  height,
+  style,
+}: {
+  width: number | string;
+  height: number | string;
+  style?: any;
+}) => {
+  const opacity = useSharedValue(0.5);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 750, easing: Easing.ease }),
+        withTiming(0.5, { duration: 750, easing: Easing.ease })
+      ),
+      -1,
+      true
+    );
+
+    return () => {
+      cancelAnimation(opacity);
+    };
+  }, [opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          backgroundColor: '#E0E0E0',
+          borderRadius: 4,
+        },
+        animatedStyle,
+        style,
+      ]}
+    />
+  );
+};
+
+// Skeleton for menu item card
+const MenuItemSkeleton = () => (
+  <View style={styles.menuItemCard}>
+    <View style={styles.menuItemHeader}>
+      <Skeleton width={80} height={80} style={{ borderRadius: 8, marginRight: 15 }} />
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <Skeleton width="70%" height={18} style={{ marginBottom: 8 }} />
+          <Skeleton width={60} height={18} style={{ borderRadius: 4 }} />
+        </View>
+        <Skeleton width="90%" height={12} style={{ marginBottom: 6 }} />
+        <Skeleton width="80%" height={12} style={{ marginBottom: 8 }} />
+        
+        <View style={{ flexDirection: 'row', marginBottom: 8, flexWrap: 'wrap' }}>
+          <Skeleton width={60} height={20} style={{ borderRadius: 4, marginRight: 8, marginBottom: 4 }} />
+          <Skeleton width={80} height={20} style={{ borderRadius: 4, marginRight: 8, marginBottom: 4 }} />
+          <Skeleton width={70} height={20} style={{ borderRadius: 4, marginRight: 8, marginBottom: 4 }} />
+        </View>
+
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Skeleton width={100} height={20} style={{ borderRadius: 4 }} />
+          <Skeleton width={60} height={20} style={{ borderRadius: 4 }} />
+        </View>
+      </View>
+    </View>
+
+    <Skeleton width="100%" height={1} style={{ marginVertical: 15 }} />
+
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Skeleton width={60} height={16} style={{ marginRight: 8 }} />
+        <Skeleton width={40} height={20} style={{ borderRadius: 12 }} />
+      </View>
+      <View style={{ flexDirection: 'row' }}>
+        <Skeleton width={36} height={36} style={{ borderRadius: 18, marginRight: 8 }} />
+        <Skeleton width={36} height={36} style={{ borderRadius: 18 }} />
+      </View>
+    </View>
+  </View>
+);
 
 const ManageMenu = () => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -375,139 +473,172 @@ const ManageMenu = () => {
     </View>
   );
 
+  // Render skeleton loading
+  const renderSkeletonLoading = () => (
+    <View style={styles.menuList}>
+      {Array(5).fill(0).map((_, index) => (
+        <MenuItemSkeleton key={index} />
+      ))}
+    </View>
+  );
+
+  // Render skeleton for search and filter bar
+  const renderHeaderSkeleton = () => (
+    <>
+      <View style={styles.header}>
+        <Skeleton width={120} height={28} style={{ marginBottom: 0 }} />
+        <Skeleton width={100} height={40} style={{ borderRadius: 8 }} />
+      </View>
+      
+      <View style={styles.searchFilterContainer}>
+        <Skeleton width="85%" height={40} style={{ borderRadius: 8, marginRight: 10 }} />
+        <Skeleton width={40} height={40} style={{ borderRadius: 8 }} />
+      </View>
+      
+      <View style={styles.statusBar}>
+        <Skeleton width={100} height={16} />
+      </View>
+    </>
+  );
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Manage Menu</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
-          <Plus size={18} color="#FFFFFF" />
-          <Text style={styles.addButtonText}>Add Item</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchFilterContainer}>
-        <View style={styles.searchContainer}>
-          <Search size={18} color="#888" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search menu items..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setFilterMenuOpen(!filterMenuOpen)}
-        >
-          <Filter size={18} color="#666" />
-        </TouchableOpacity>
-      </View>
-
-      {filterMenuOpen && (
-        <View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryFilters}
-          >
-            {categories.map((category) => (
-              <TouchableOpacity
-                key={category}
-                style={[
-                  styles.categoryFilterButton,
-                  selectedCategory === category && styles.selectedCategoryFilter
-                ]}
-                onPress={() => setSelectedCategory(category)}
-              >
-                {category !== 'All' && getCategoryIcon(category as Category)}
-                <Text
-                  style={[
-                    styles.categoryFilterText,
-                    selectedCategory === category && styles.selectedCategoryText
-                  ]}
-                >
-                  {category}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <View style={styles.vegFilterContainer}>
-            <TouchableOpacity
-              style={[styles.customCheckbox, onlyVeg && styles.customCheckboxChecked]}
-              onPress={() => setOnlyVeg(!onlyVeg)}
-            >
-              {onlyVeg && <View style={styles.checkboxInner} />}
-            </TouchableOpacity>
-            <Text style={styles.vegFilterText}>Vegetarian Only</Text>
-          </View>
-        </View>
-      )}
-
-      <View style={styles.statusBar}>
-        <Text style={styles.statusText}>
-          {filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'} found
-        </Text>
-        <View style={styles.activeFiltersContainer}>
-          {selectedCategory !== 'All' && (
-            <View style={styles.activeFilter}>
-              <Text style={styles.activeFilterText}>{selectedCategory}</Text>
-              <TouchableOpacity onPress={() => setSelectedCategory('All')}>
-                <X size={12} color="#FF6B00" />
-              </TouchableOpacity>
-            </View>
-          )}
-          {onlyVeg && (
-            <View style={styles.activeFilter}>
-              <Text style={styles.activeFilterText}>Vegetarian</Text>
-              <TouchableOpacity onPress={() => setOnlyVeg(false)}>
-                <X size={12} color="#FF6B00" />
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </View>
-
       {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF6B00" />
-        </View>
-      ) : menuItems.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No menu items found. Add your first item to get started!</Text>
-          <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
-            <Plus size={18} color="#FFFFFF" />
-            <Text style={styles.addButtonText}>Add Item</Text>
-          </TouchableOpacity>
-        </View>
+        <>
+          {renderHeaderSkeleton()}
+          {renderSkeletonLoading()}
+        </>
       ) : (
-        <FlatList
-          data={filteredItems}
-          renderItem={renderMenuItem}
-          keyExtractor={(item) => item._id}
-          contentContainerStyle={styles.menuList}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={['#FF6B00']}
-              tintColor="#FF6B00"
-            />
-          }
-          ListEmptyComponent={
+        <>
+          <View style={styles.header}>
+            <Text style={styles.title}>Manage Menu</Text>
+            <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
+              <Plus size={18} color="#FFFFFF" />
+              <Text style={styles.addButtonText}>Add Item</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.searchFilterContainer}>
+            <View style={styles.searchContainer}>
+              <Search size={18} color="#888" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search menu items..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
+            <TouchableOpacity
+              style={styles.filterButton}
+              onPress={() => setFilterMenuOpen(!filterMenuOpen)}
+            >
+              <Filter size={18} color="#666" />
+            </TouchableOpacity>
+          </View>
+
+          {filterMenuOpen && (
+            <View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.categoryFilters}
+              >
+                {categories.map((category) => (
+                  <TouchableOpacity
+                    key={category}
+                    style={[
+                      styles.categoryFilterButton,
+                      selectedCategory === category && styles.selectedCategoryFilter
+                    ]}
+                    onPress={() => setSelectedCategory(category)}
+                  >
+                    {category !== 'All' && getCategoryIcon(category as Category)}
+                    <Text
+                      style={[
+                        styles.categoryFilterText,
+                        selectedCategory === category && styles.selectedCategoryText
+                      ]}
+                    >
+                      {category}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <View style={styles.vegFilterContainer}>
+                <TouchableOpacity
+                  style={[styles.customCheckbox, onlyVeg && styles.customCheckboxChecked]}
+                  onPress={() => setOnlyVeg(!onlyVeg)}
+                >
+                  {onlyVeg && <View style={styles.checkboxInner} />}
+                </TouchableOpacity>
+                <Text style={styles.vegFilterText}>Vegetarian Only</Text>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.statusBar}>
+            <Text style={styles.statusText}>
+              {filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'} found
+            </Text>
+            <View style={styles.activeFiltersContainer}>
+              {selectedCategory !== 'All' && (
+                <View style={styles.activeFilter}>
+                  <Text style={styles.activeFilterText}>{selectedCategory}</Text>
+                  <TouchableOpacity onPress={() => setSelectedCategory('All')}>
+                    <X size={12} color="#FF6B00" />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {onlyVeg && (
+                <View style={styles.activeFilter}>
+                  <Text style={styles.activeFilterText}>Vegetarian</Text>
+                  <TouchableOpacity onPress={() => setOnlyVeg(false)}>
+                    <X size={12} color="#FF6B00" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {menuItems.length === 0 && !loading ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No items match your filters</Text>
-              <TouchableOpacity style={styles.refreshButton} onPress={() => {
-                setSelectedCategory('All');
-                setOnlyVeg(false);
-                setSearchQuery('');
-              }}>
-                <RefreshCw size={20} color="#FF6B00" />
-                <Text style={styles.refreshText}>Reset Filters</Text>
+              <Text style={styles.emptyText}>No menu items found. Add your first item to get started!</Text>
+              <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
+                <Plus size={18} color="#FFFFFF" />
+                <Text style={styles.addButtonText}>Add Item</Text>
               </TouchableOpacity>
             </View>
-          }
-        />
+          ) : (
+            <FlatList
+              data={filteredItems}
+              renderItem={renderMenuItem}
+              keyExtractor={(item) => item._id}
+              contentContainerStyle={styles.menuList}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={['#FF6B00']}
+                  tintColor="#FF6B00"
+                />
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No items match your filters</Text>
+                  <TouchableOpacity style={styles.refreshButton} onPress={() => {
+                    setSelectedCategory('All');
+                    setOnlyVeg(false);
+                    setSearchQuery('');
+                  }}>
+                    <RefreshCw size={20} color="#FF6B00" />
+                    <Text style={styles.refreshText}>Reset Filters</Text>
+                  </TouchableOpacity>
+                </View>
+              }
+            />
+          )}
+        </>
       )}
 
       {/* Add Menu Item Modal */}

@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { 
   LogOut, 
   Users, 
@@ -12,13 +12,52 @@ import { RootState } from '../../redux/store';
 import { logout } from '../../redux/slices/authSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '@/config';
+import { useMemo, useState } from 'react';
+
+// Function to generate initials from name
+const getInitials = (name: string): string => {
+  if (!name) return 'AD'; // Admin Default
+
+  const words = name.trim().split(' ');
+  if (words.length === 1) return words[0].substring(0, 2).toUpperCase();
+
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+};
+
+// Function to generate a consistent color based on name
+const generateColorFromName = (name: string): string => {
+  if (!name) return '#4F46E5'; // Default admin color
+
+  // Simple hash function for name to generate consistent colors
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  // Generate admin-themed colors
+  const colorPalette = [
+    '#4F46E5', '#10B981', '#8B5CF6', '#0EA5E9', '#6366F1',
+    '#EC4899', '#F59E0B', '#06B6D4', '#84CC16', '#F43F5E'
+  ];
+
+  const index = Math.abs(hash % colorPalette.length);
+  return colorPalette[index];
+};
 
 export default function AdminProfile() {
   const router = useRouter();
   const dispatch = useDispatch();
   const { name, email, token, role } = useSelector((state: RootState) => state.auth);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Generate initials and background color based on name
+  const initials = useMemo(() => getInitials(name || ''), [name]);
+  const avatarColor = useMemo(() => generateColorFromName(name || ''), [name]);
 
   const handleLogout = async () => {
+    if (isLoading) return; // Prevent multiple clicks
+    
+    setIsLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/users/logout`, {
         method: 'POST',
@@ -27,21 +66,26 @@ export default function AdminProfile() {
         },
       });
 
+      // Always clear local storage and Redux, even if the API call fails
+      await AsyncStorage.removeItem('authState');
+      dispatch(logout());
+
       if (response.ok) {
-        // Clear AsyncStorage
-        await AsyncStorage.removeItem('authState');
-
-        // Clear Redux store
-        dispatch(logout());
-
-        // Redirect to login page
-        router.replace('/(auth)/login');
+        console.log('Logout successful');
       } else {
         console.error('Logout failed on the server');
       }
+      
+      // Redirect to login page
+      router.replace('/(auth)/login');
     } catch (error) {
       console.error('Logout error:', error);
+      // Even if there's an error, attempt to clear the local state
+      await AsyncStorage.removeItem('authState');
+      dispatch(logout());
+      router.replace('/(auth)/login');
     }
+    // No need to reset isLoading as we'll navigate away
   };
 
   return (
@@ -49,10 +93,10 @@ export default function AdminProfile() {
       <View style={styles.header}>
         <Text style={styles.title}>Admin Dashboard</Text>
         <View style={styles.profile}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=400&q=80' }}
-            style={styles.avatar}
-          />
+          {/* Name-based avatar with initials */}
+          <View style={[styles.avatarContainer, { backgroundColor: avatarColor }]}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </View>
           <Text style={styles.name}>{name || 'Admin Name'}</Text>
           <Text style={styles.email}>{email || 'admin@example.com'}</Text>
 
@@ -114,12 +158,19 @@ export default function AdminProfile() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={styles.logoutButton}
+        <TouchableOpacity 
+          style={styles.logoutButton} 
           onPress={handleLogout}
+          disabled={isLoading}
         >
-          <LogOut size={20} color="#FF4B4B" />
-          <Text style={styles.logoutText}>Log Out</Text>
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#FF4B4B" />
+          ) : (
+            <>
+              <LogOut size={20} color="#FF4B4B" />
+              <Text style={styles.logoutText}>Log Out</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -146,11 +197,18 @@ const styles = StyleSheet.create({
   profile: {
     alignItems: 'center',
   },
-  avatar: {
+  avatarContainer: {
     width: 100,
     height: 100,
     borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  avatarText: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: 'white',
   },
   name: {
     fontSize: 20,

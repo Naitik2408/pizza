@@ -1,17 +1,75 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform } from 'react-native';
+import React, {useEffect} from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform, ActivityIndicator } from 'react-native';
 import { User, X, Edit, Truck, ShoppingBag, DollarSign } from 'lucide-react-native';
 import { Order, OrderItem, AddOnOption } from '../../../admin/orders';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  withSequence,
+  cancelAnimation,
+  Easing
+} from 'react-native-reanimated';
 
+// Skeleton component
+const Skeleton = ({
+  width,
+  height,
+  style,
+}: {
+  width: number | string;
+  height: number | string;
+  style?: any;
+}) => {
+  const opacity = useSharedValue(0.5);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 750, easing: Easing.ease }),
+        withTiming(0.5, { duration: 750, easing: Easing.ease })
+      ),
+      -1,
+      true
+    );
+
+    return () => {
+      cancelAnimation(opacity);
+    };
+  }, [opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          backgroundColor: '#E0E0E0',
+          borderRadius: 4,
+        },
+        animatedStyle,
+        style,
+      ]}
+    />
+  );
+};
+
+// Updated OrderDetailsModal props interface
 interface OrderDetailsModalProps {
   visible: boolean;
   order: Order | null;
   onClose: () => void;
   onUpdateStatus: () => void;
   onAssignAgent: () => void;
-  onUpdatePayment: () => void; // Added this prop
+  onUpdatePayment: () => void;
   getStatusColor: (status: string) => string;
-  getPaymentStatusColor: (status: string) => string; // Added this prop
+  getPaymentStatusColor: (status: string) => string;
+  isLoading?: boolean; // Add this new prop
 }
 
 const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
@@ -20,9 +78,10 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   onClose,
   onUpdateStatus,
   onAssignAgent,
-  onUpdatePayment, // Added this in the destructuring
+  onUpdatePayment,
   getStatusColor,
-  getPaymentStatusColor, // Added this in the destructuring
+  getPaymentStatusColor,
+  isLoading = false, // Default to false
 }) => {
   if (!order) return null;
 
@@ -154,6 +213,118 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     return total;
   };
 
+  // Render skeleton for order information
+  const renderOrderInfoSkeleton = () => (
+    <View style={styles.orderDetailSection}>
+      <Text style={styles.sectionTitle}>Order Information</Text>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Order ID:</Text>
+        <Skeleton width={80} height={16} />
+      </View>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Date & Time:</Text>
+        <Skeleton width={150} height={16} />
+      </View>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Status:</Text>
+        <Skeleton width={100} height={24} style={{ borderRadius: 50 }} />
+      </View>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Payment Method:</Text>
+        <Skeleton width={120} height={16} />
+      </View>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Payment Status:</Text>
+        <Skeleton width={100} height={24} style={{ borderRadius: 50 }} />
+      </View>
+    </View>
+  );
+
+  // Render skeleton for customer information
+  const renderCustomerInfoSkeleton = () => (
+    <View style={styles.orderDetailSection}>
+      <Text style={styles.sectionTitle}>Customer Information</Text>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Name:</Text>
+        <Skeleton width={130} height={16} />
+      </View>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Phone:</Text>
+        <Skeleton width={120} height={16} />
+      </View>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Delivery Address:</Text>
+        <Skeleton width="100%" height={16} style={{ marginBottom: 6 }} />
+        <Skeleton width="70%" height={16} />
+      </View>
+    </View>
+  );
+
+  // Render skeleton for delivery information
+  const renderDeliveryInfoSkeleton = () => (
+    <View style={styles.orderDetailSection}>
+      <Text style={styles.sectionTitle}>Delivery Information</Text>
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>Delivery Agent:</Text>
+        <Skeleton width={150} height={30} style={{ borderRadius: 6 }} />
+      </View>
+    </View>
+  );
+
+  // Render skeleton for order items
+  const renderOrderItemsSkeleton = () => (
+    <View style={styles.orderDetailSection}>
+      <Text style={styles.sectionTitle}>Order Items</Text>
+      {[1, 2].map((_, index) => (
+        <View key={index} style={styles.orderItem}>
+          <View style={styles.orderItemHeader}>
+            <Skeleton width={150} height={20} style={{ marginRight: 10 }} />
+            <Skeleton width={50} height={20} style={{ borderRadius: 4 }} />
+          </View>
+          <View style={{ padding: 12 }}>
+            <Skeleton width="100%" height={40} style={{ marginBottom: 10 }} />
+            <Skeleton width="90%" height={20} style={{ marginBottom: 10 }} />
+            <Skeleton width="80%" height={20} />
+          </View>
+          <View style={styles.priceBreakdownContainer}>
+            <Skeleton width={130} height={18} style={{ marginBottom: 10 }} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Skeleton width={120} height={16} />
+              <Skeleton width={70} height={16} />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Skeleton width={100} height={16} />
+              <Skeleton width={60} height={16} />
+            </View>
+            <View style={{ height: 1, backgroundColor: '#E0E0E0', marginVertical: 10 }} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Skeleton width={80} height={18} />
+              <Skeleton width={70} height={20} />
+            </View>
+          </View>
+        </View>
+      ))}
+
+      {/* Order summary skeleton */}
+      <View style={styles.orderSummary}>
+        <Skeleton width={130} height={20} style={{ marginBottom: 15 }} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Skeleton width={100} height={16} />
+          <Skeleton width={80} height={16} />
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Skeleton width={90} height={16} />
+          <Skeleton width={70} height={16} />
+        </View>
+        <View style={styles.divider} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+          <Skeleton width={90} height={20} />
+          <Skeleton width={90} height={22} />
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <Modal
       visible={visible}
@@ -171,216 +342,233 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           </View>
 
           <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-            <View style={styles.orderDetailSection}>
-              <Text style={styles.sectionTitle}>Order Information</Text>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Order ID:</Text>
-                <Text style={styles.detailValue}>#{order.id}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Date & Time:</Text>
-                <Text style={styles.detailValue}>{order.date} at {order.time}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Status:</Text>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) }]}>
-                  <Text style={styles.statusText}>{order.status}</Text>
-                </View>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Payment Method:</Text>
-                <Text style={styles.detailValue}>{order.paymentMethod || 'Not available'}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Payment Status:</Text>
-                <View style={[styles.paymentStatusBadge, { 
-                  backgroundColor: getPaymentStatusColor(order.paymentStatus || 'Pending')
-                }]}>
-                  <Text style={styles.statusText}>{order.paymentStatus || 'Pending'}</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.orderDetailDivider} />
-
-            <View style={styles.orderDetailSection}>
-              <Text style={styles.sectionTitle}>Customer Information</Text>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Name:</Text>
-                <Text style={styles.detailValue}>{order.customer}</Text>
-              </View>
-              {order.customerPhone && (
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>Phone:</Text>
-                  <Text style={styles.detailValue}>{order.customerPhone}</Text>
-                </View>
-              )}
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Delivery Address:</Text>
-                <Text style={styles.detailValue}>{order.address || order.fullAddress}</Text>
-              </View>
-              {order.notes && (
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>Delivery Notes:</Text>
-                  <Text style={styles.detailValue}>{order.notes}</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.orderDetailDivider} />
-
-            <View style={styles.orderDetailSection}>
-              <Text style={styles.sectionTitle}>Delivery Information</Text>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Delivery Agent:</Text>
-                <View style={styles.agentBadge}>
-                  <User size={14} color="#666" />
-                  <Text style={styles.agentBadgeText}>{order.deliveryAgent}</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.orderDetailDivider} />
-
-            <View style={styles.orderDetailSection}>
-              <Text style={styles.sectionTitle}>Order Items</Text>
-              {order.items && order.items.length > 0 ? (
-                order.items.map((item, index) => (
-                  <View key={index} style={styles.orderItem}>
-                    {/* Item header with name and food type */}
-                    <View style={styles.orderItemHeader}>
-                      <View style={styles.orderItemInfo}>
-                        <Text style={styles.itemName}>{item.name || "Unnamed Item"}</Text>
-                        {item.foodType && item.foodType !== 'Not Applicable' && (
-                          <Text style={[
-                            styles.itemFoodType,
-                            { color: item.foodType === 'Veg' ? '#4CAF50' : '#F44336' }
-                          ]}>
-                            {item.foodType}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-
-                    {/* Enhanced Customizations Display */}
-                    {renderCustomizations(item)}
-
-                    {/* Improved Price Breakdown */}
-                    <View style={styles.priceBreakdownContainer}>
-                      <Text style={styles.priceBreakdownTitle}>Price Breakdown</Text>
-
-                      {/* Base price × quantity */}
-                      <View style={styles.priceBreakdownRow}>
-                        <Text style={styles.priceBreakdownLabel}>
-                          Base Price: ₹{(item.price ?? 0).toFixed(2)} × {item.quantity ?? 1}
-                        </Text>
-                        <Text style={styles.priceBreakdownValue}>
-                          ₹{((item.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
-                        </Text>
-                      </View>
-
-                      {/* Size info if available */}
-                      {item.size && item.size !== 'Not Applicable' && (
-                        <View style={styles.priceBreakdownRow}>
-                          <Text style={styles.priceBreakdownLabel}>Size</Text>
-                          <Text style={styles.priceBreakdownValue}>{item.size}</Text>
-                        </View>
-                      )}
-
-                      {/* Customizations total if any */}
-                      {calculateCustomizationsTotal(item) > 0 && (
-                        <View style={styles.priceBreakdownRow}>
-                          <Text style={styles.priceBreakdownLabel}>
-                            Base Customizations {(item.quantity ?? 0) > 1 ? `× ${item.quantity}` : ''}
-                          </Text>
-                          <Text style={styles.priceBreakdownValue}>
-                            ₹{(calculateCustomizationsTotal(item) * (item.quantity ?? 1)).toFixed(2)}
-                          </Text>
-                        </View>
-                      )}
-
-                      {/* Add-ons total if any */}
-                      {calculateAddOnsTotal(item) > 0 && (
-                        <View style={styles.priceBreakdownRow}>
-                          <Text style={styles.priceBreakdownLabel}>
-                            Add-ons {(item.quantity ?? 0) > 1 ? `× ${item.quantity}` : ''}
-                          </Text>
-                          <Text style={styles.priceBreakdownValue}>
-                            ₹{(calculateAddOnsTotal(item) * (item.quantity ?? 1)).toFixed(2)}
-                          </Text>
-                        </View>
-                      )}
-
-                      {/* Item total */}
-                      <View style={styles.priceBreakdownTotal}>
-                        <Text style={styles.priceBreakdownTotalLabel}>Item Total</Text>
-                        <Text style={styles.priceBreakdownTotalValue}>
-                          ₹{calculateItemSubtotal(item).toFixed(2)}
-                        </Text>
-                      </View>
+            {isLoading ? (
+              // Show skeleton UI while loading
+              <>
+                {renderOrderInfoSkeleton()}
+                <View style={styles.orderDetailDivider} />
+                {renderCustomerInfoSkeleton()}
+                <View style={styles.orderDetailDivider} />
+                {renderDeliveryInfoSkeleton()}
+                <View style={styles.orderDetailDivider} />
+                {renderOrderItemsSkeleton()}
+              </>
+            ) : (
+              // Show actual content when loaded
+              <>
+                <View style={styles.orderDetailSection}>
+                  <Text style={styles.sectionTitle}>Order Information</Text>
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Order ID:</Text>
+                    <Text style={styles.detailValue}>#{order.id}</Text>
+                  </View>
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Date & Time:</Text>
+                    <Text style={styles.detailValue}>{order.date} at {order.time}</Text>
+                  </View>
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Status:</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) }]}>
+                      <Text style={styles.statusText}>{order.status}</Text>
                     </View>
                   </View>
-                ))
-              ) : (
-                <View style={styles.noItems}>
-                  <ShoppingBag size={40} color="#DDD" />
-                  <Text style={styles.noItemsText}>No items in this order</Text>
-                </View>
-              )}
-
-              {/* Order summary section with detailed breakdown */}
-              <View style={styles.orderSummary}>
-                <Text style={styles.summaryTitle}>Order Summary</Text>
-
-                {/* Calculate items subtotal - Fixed with type assertion */}
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Items Subtotal:</Text>
-                  <Text style={styles.summaryValue}>
-                    ₹{((order as any).subTotal ?? order.amount ?? 0).toFixed(2)}
-                  </Text>
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Payment Method:</Text>
+                    <Text style={styles.detailValue}>{order.paymentMethod || 'Not available'}</Text>
+                  </View>
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Payment Status:</Text>
+                    <View style={[styles.paymentStatusBadge, { 
+                      backgroundColor: getPaymentStatusColor(order.paymentStatus || 'Pending')
+                    }]}>
+                      <Text style={styles.statusText}>{order.paymentStatus || 'Pending'}</Text>
+                    </View>
+                  </View>
                 </View>
 
-                {/* Show delivery fee - Fixed with type assertion */}
-                {((order as any).deliveryFee ?? 0) > 0 && (
-                  <View style={styles.summaryItem}>
-                    <Text style={styles.summaryLabel}>Delivery Fee:</Text>
-                    <Text style={styles.summaryValue}>₹{((order as any).deliveryFee ?? 0).toFixed(2)}</Text>
+                <View style={styles.orderDetailDivider} />
+
+                <View style={styles.orderDetailSection}>
+                  <Text style={styles.sectionTitle}>Customer Information</Text>
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Name:</Text>
+                    <Text style={styles.detailValue}>{order.customer}</Text>
                   </View>
-                )}
-
-                {/* Show taxes - Fixed with type assertion */}
-                {((order as any).tax ?? 0) > 0 && (
-                  <View style={styles.summaryItem}>
-                    <Text style={styles.summaryLabel}>Tax (GST):</Text>
-                    <Text style={styles.summaryValue}>₹{((order as any).tax ?? 0).toFixed(2)}</Text>
+                  {order.customerPhone && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>Phone:</Text>
+                      <Text style={styles.detailValue}>{order.customerPhone}</Text>
+                    </View>
+                  )}
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Delivery Address:</Text>
+                    <Text style={styles.detailValue}>{order.address || order.fullAddress}</Text>
                   </View>
-                )}
-
-                {/* Show discount if applicable - Fixed with type assertion */}
-                {((order as any).discounts ?? 0) > 0 && (
-                  <View style={styles.summaryItem}>
-                    <Text style={[styles.summaryLabel, { color: '#FF6B00' }]}>Discount:</Text>
-                    <Text style={[styles.summaryValue, { color: '#FF6B00' }]}>-₹{((order as any).discounts ?? 0).toFixed(2)}</Text>
-                  </View>
-                )}
-
-                <View style={styles.divider} />
-
-                {/* Show total amount - Using existing property which should be in the type */}
-                <View style={styles.orderTotal}>
-                  <Text style={styles.orderTotalLabel}>Grand Total:</Text>
-                  <Text style={styles.orderTotalValue}>
-                    ₹{(order.amount ?? 0).toFixed(2)}
-                  </Text>
+                  {order.notes && (
+                    <View style={styles.detailItem}>
+                      <Text style={styles.detailLabel}>Delivery Notes:</Text>
+                      <Text style={styles.detailValue}>{order.notes}</Text>
+                    </View>
+                  )}
                 </View>
 
-                {/* Additional calculation explanation if needed */}
-                <Text style={styles.calculationNote}>
-                  All prices include applicable taxes and delivery charges.
-                </Text>
-              </View>
-            </View>
+                <View style={styles.orderDetailDivider} />
 
+                <View style={styles.orderDetailSection}>
+                  <Text style={styles.sectionTitle}>Delivery Information</Text>
+                  <View style={styles.detailItem}>
+                    <Text style={styles.detailLabel}>Delivery Agent:</Text>
+                    <View style={styles.agentBadge}>
+                      <User size={14} color="#666" />
+                      <Text style={styles.agentBadgeText}>{order.deliveryAgent}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.orderDetailDivider} />
+
+                <View style={styles.orderDetailSection}>
+                  <Text style={styles.sectionTitle}>Order Items</Text>
+                  {order.items && order.items.length > 0 ? (
+                    order.items.map((item, index) => (
+                      <View key={index} style={styles.orderItem}>
+                        {/* Item header with name and food type */}
+                        <View style={styles.orderItemHeader}>
+                          <View style={styles.orderItemInfo}>
+                            <Text style={styles.itemName}>{item.name || "Unnamed Item"}</Text>
+                            {item.foodType && item.foodType !== 'Not Applicable' && (
+                              <Text style={[
+                                styles.itemFoodType,
+                                { color: item.foodType === 'Veg' ? '#4CAF50' : '#F44336' }
+                              ]}>
+                                {item.foodType}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+
+                        {/* Enhanced Customizations Display */}
+                        {renderCustomizations(item)}
+
+                        {/* Improved Price Breakdown */}
+                        <View style={styles.priceBreakdownContainer}>
+                          <Text style={styles.priceBreakdownTitle}>Price Breakdown</Text>
+
+                          {/* Base price × quantity */}
+                          <View style={styles.priceBreakdownRow}>
+                            <Text style={styles.priceBreakdownLabel}>
+                              Base Price: ₹{(item.price ?? 0).toFixed(2)} × {item.quantity ?? 1}
+                            </Text>
+                            <Text style={styles.priceBreakdownValue}>
+                              ₹{((item.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
+                            </Text>
+                          </View>
+
+                          {/* Size info if available */}
+                          {item.size && item.size !== 'Not Applicable' && (
+                            <View style={styles.priceBreakdownRow}>
+                              <Text style={styles.priceBreakdownLabel}>Size</Text>
+                              <Text style={styles.priceBreakdownValue}>{item.size}</Text>
+                            </View>
+                          )}
+
+                          {/* Customizations total if any */}
+                          {calculateCustomizationsTotal(item) > 0 && (
+                            <View style={styles.priceBreakdownRow}>
+                              <Text style={styles.priceBreakdownLabel}>
+                                Base Customizations {(item.quantity ?? 0) > 1 ? `× ${item.quantity}` : ''}
+                              </Text>
+                              <Text style={styles.priceBreakdownValue}>
+                                ₹{(calculateCustomizationsTotal(item) * (item.quantity ?? 1)).toFixed(2)}
+                              </Text>
+                            </View>
+                          )}
+
+                          {/* Add-ons total if any */}
+                          {calculateAddOnsTotal(item) > 0 && (
+                            <View style={styles.priceBreakdownRow}>
+                              <Text style={styles.priceBreakdownLabel}>
+                                Add-ons {(item.quantity ?? 0) > 1 ? `× ${item.quantity}` : ''}
+                              </Text>
+                              <Text style={styles.priceBreakdownValue}>
+                                ₹{(calculateAddOnsTotal(item) * (item.quantity ?? 1)).toFixed(2)}
+                              </Text>
+                            </View>
+                          )}
+
+                          {/* Item total */}
+                          <View style={styles.priceBreakdownTotal}>
+                            <Text style={styles.priceBreakdownTotalLabel}>Item Total</Text>
+                            <Text style={styles.priceBreakdownTotalValue}>
+                              ₹{calculateItemSubtotal(item).toFixed(2)}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.noItems}>
+                      <ShoppingBag size={40} color="#DDD" />
+                      <Text style={styles.noItemsText}>No items in this order</Text>
+                    </View>
+                  )}
+
+                  {/* Order summary section with detailed breakdown */}
+                  <View style={styles.orderSummary}>
+                    <Text style={styles.summaryTitle}>Order Summary</Text>
+
+                    {/* Calculate items subtotal - Fixed with type assertion */}
+                    <View style={styles.summaryItem}>
+                      <Text style={styles.summaryLabel}>Items Subtotal:</Text>
+                      <Text style={styles.summaryValue}>
+                        ₹{((order as any).subTotal ?? order.amount ?? 0).toFixed(2)}
+                      </Text>
+                    </View>
+
+                    {/* Show delivery fee - Fixed with type assertion */}
+                    {((order as any).deliveryFee ?? 0) > 0 && (
+                      <View style={styles.summaryItem}>
+                        <Text style={styles.summaryLabel}>Delivery Fee:</Text>
+                        <Text style={styles.summaryValue}>₹{((order as any).deliveryFee ?? 0).toFixed(2)}</Text>
+                      </View>
+                    )}
+
+                    {/* Show taxes - Fixed with type assertion */}
+                    {((order as any).tax ?? 0) > 0 && (
+                      <View style={styles.summaryItem}>
+                        <Text style={styles.summaryLabel}>Tax (GST):</Text>
+                        <Text style={styles.summaryValue}>₹{((order as any).tax ?? 0).toFixed(2)}</Text>
+                      </View>
+                    )}
+
+                    {/* Show discount if applicable - Fixed with type assertion */}
+                    {((order as any).discounts ?? 0) > 0 && (
+                      <View style={styles.summaryItem}>
+                        <Text style={[styles.summaryLabel, { color: '#FF6B00' }]}>Discount:</Text>
+                        <Text style={[styles.summaryValue, { color: '#FF6B00' }]}>-₹{((order as any).discounts ?? 0).toFixed(2)}</Text>
+                      </View>
+                    )}
+
+                    <View style={styles.divider} />
+
+                    {/* Show total amount - Using existing property which should be in the type */}
+                    <View style={styles.orderTotal}>
+                      <Text style={styles.orderTotalLabel}>Grand Total:</Text>
+                      <Text style={styles.orderTotalValue}>
+                        ₹{(order.amount ?? 0).toFixed(2)}
+                      </Text>
+                    </View>
+
+                    {/* Additional calculation explanation if needed */}
+                    <Text style={styles.calculationNote}>
+                      All prices include applicable taxes and delivery charges.
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
+
+            {/* Action buttons - Always show these regardless of loading state */}
             <View style={styles.detailsActionButtons}>
               <TouchableOpacity
                 style={styles.detailsActionButton}
@@ -389,6 +577,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   onUpdateStatus();
                 }}
                 activeOpacity={0.8}
+                disabled={isLoading}
               >
                 <Edit size={16} color="#FFF" style={{ marginRight: 8 }} />
                 <Text style={styles.detailsActionButtonText}>Update Status</Text>
@@ -401,6 +590,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   onAssignAgent();
                 }}
                 activeOpacity={0.8}
+                disabled={isLoading}
               >
                 <Truck size={16} color="#FFF" style={{ marginRight: 8 }} />
                 <Text style={styles.detailsActionButtonText}>Assign Agent</Text>
@@ -415,6 +605,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 onUpdatePayment();
               }}
               activeOpacity={0.8}
+              disabled={isLoading}
             >
               <DollarSign size={16} color="#FFF" style={{ marginRight: 8 }} />
               <Text style={styles.detailsActionButtonText}>Update Payment Status</Text>
@@ -426,6 +617,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   );
 };
 
+// Styles remain the same as before
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,

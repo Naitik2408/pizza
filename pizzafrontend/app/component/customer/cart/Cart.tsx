@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Alert, Platform, TextInput, ActivityIndicator } from 'react-native';
-import { AntDesign, MaterialIcons } from '@expo/vector-icons';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Alert, Platform, TextInput, ActivityIndicator, Modal, ScrollView } from 'react-native';
+import { AntDesign, MaterialIcons, Entypo } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -20,6 +20,7 @@ import {
 } from '../../../../redux/slices/cartSlice';
 import { RootState } from '../../../../redux/store';
 import { API_URL } from '@/config';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // Import checkout flow components
 import AddressSelection from './AddressSelection';
@@ -40,6 +41,7 @@ interface BusinessSettings {
     freeDeliveryThreshold: number;
     applyToAllOrders: boolean;
   };
+  minimumOrderValue: number; // Added minimum order value field
 }
 
 // Selected add-on interface
@@ -78,6 +80,24 @@ interface PreparedOrderItem {
   addOns: FormattedAddOn[];
 }
 
+// Interface for Offer/Promo code
+interface Offer {
+  _id: string;
+  title: string;
+  code: string;
+  description: string;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+  minOrderValue: number;
+  maxDiscountAmount: number | null;
+  active: boolean;
+  validFrom: string;
+  validUntil: string;
+  usageLimit: number | null;
+  usageCount: number;
+  createdAt: string;
+}
+
 // Default business settings to use as fallback
 const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
   taxSettings: {
@@ -88,7 +108,8 @@ const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
     fixedCharge: 40,
     freeDeliveryThreshold: 500,
     applyToAllOrders: false
-  }
+  },
+  minimumOrderValue: 200 // Default minimum order value
 };
 
 const Cart = () => {
@@ -112,6 +133,11 @@ const Cart = () => {
   // State for minimum order requirement
   const [minOrderRequirement, setMinOrderRequirement] = useState<number | null>(null);
   
+  // State for available promo codes
+  const [availableOffers, setAvailableOffers] = useState<Offer[]>([]);
+  const [loadingOffers, setLoadingOffers] = useState(false);
+  const [showPromoModal, setShowPromoModal] = useState(false);
+  
   // State for business settings
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(DEFAULT_BUSINESS_SETTINGS);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
@@ -133,6 +159,9 @@ const Cart = () => {
   // Calculate whether delivery is free based on business settings and order subtotal
   const isFreeDelivery = !businessSettings.deliveryCharges.applyToAllOrders && 
     subtotal >= businessSettings.deliveryCharges.freeDeliveryThreshold;
+
+  // Calculate whether minimum order requirement is met
+  const isMinimumOrderMet = subtotal >= businessSettings.minimumOrderValue;
 
   // Calculate delivery charge based on business settings
   const calculateDeliveryCharge = () => {
@@ -157,6 +186,15 @@ const Cart = () => {
     
     return (subtotal * gstPercentage) / 100;
   };
+
+  // Colors for promo code cards
+  const promoThemes = [
+    { gradientColors: ['#FF9800', '#FF5722'] },
+    { gradientColors: ['#03A9F4', '#1976D2'] },
+    { gradientColors: ['#8BC34A', '#388E3C'] },
+    { gradientColors: ['#BA68C8', '#7B1FA2'] },
+    { gradientColors: ['#FF5252', '#D32F2F'] }
+  ];
 
   // Fetch business settings on component mount
   useEffect(() => {
@@ -204,7 +242,10 @@ const Cart = () => {
         console.log('Received business settings:', data);
         
         // Set the business settings in state
-        setBusinessSettings(data);
+        setBusinessSettings({
+          ...data,
+          minimumOrderValue: data.minimumOrderValue || DEFAULT_BUSINESS_SETTINGS.minimumOrderValue
+        });
         
         // Calculate delivery charge based on settings and current subtotal
         const deliveryCharge = data.deliveryCharges.applyToAllOrders ? 
@@ -245,6 +286,7 @@ const Cart = () => {
     };
     
     fetchBusinessSettings();
+    fetchAvailableOffers();
   }, [dispatch]);
 
   // Update delivery fee and tax whenever subtotal changes
@@ -261,6 +303,81 @@ const Cart = () => {
       deliveryFee: deliveryCharge
     }));
   }, [subtotal, businessSettings, dispatch]);
+
+  // Fetch available offers when the component mounts
+  const fetchAvailableOffers = async () => {
+    try {
+      setLoadingOffers(true);
+      
+      const response = await fetch(`${API_URL}/api/offers`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch offers');
+      }
+      
+      const data: Offer[] = await response.json();
+      
+      // Filter active offers
+      const activeOffers = data.filter(offer => offer.active);
+      
+      setAvailableOffers(activeOffers);
+    } catch (error) {
+      console.error('Error fetching available offers:', error);
+      // Fallback offers in case API fails
+      setAvailableOffers([
+        {
+          _id: 'offer-1',
+          title: 'Weekend Special',
+          code: 'WEEKEND40',
+          description: 'Get 40% off on all orders above ₹599',
+          discountType: 'percentage',
+          discountValue: 40,
+          minOrderValue: 599,
+          maxDiscountAmount: 200,
+          active: true,
+          validFrom: new Date().toISOString(),
+          validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          usageLimit: null,
+          usageCount: 0,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'offer-2',
+          title: 'New User',
+          code: 'NEWUSER',
+          description: 'Get ₹100 off on your first order above ₹300',
+          discountType: 'fixed',
+          discountValue: 100,
+          minOrderValue: 300,
+          maxDiscountAmount: null,
+          active: true,
+          validFrom: new Date().toISOString(),
+          validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          usageLimit: 1,
+          usageCount: 0,
+          createdAt: new Date().toISOString(),
+        },
+        {
+          _id: 'offer-3',
+          title: 'Family Feast',
+          code: 'FAMILY999',
+          description: '20% off on orders above ₹999',
+          discountType: 'percentage',
+          discountValue: 20,
+          minOrderValue: 999,
+          maxDiscountAmount: 300,
+          active: true,
+          validFrom: new Date().toISOString(),
+          validUntil: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+          usageLimit: null,
+          usageCount: 0,
+          createdAt: new Date().toISOString(),
+        }
+      ]);
+    } finally {
+      setLoadingOffers(false);
+    }
+  };
 
   // Check for pre-selected offers when the component mounts
   useEffect(() => {
@@ -381,6 +498,9 @@ const Cart = () => {
 
       // Clear input
       setOfferCode('');
+      
+      // Close promo modal if it was open
+      setShowPromoModal(false);
 
     } catch (error) {
       // Better error handling that doesn't log to console in production
@@ -492,6 +612,23 @@ const Cart = () => {
       return;
     }
 
+    // Check if the order meets the minimum order value
+    if (subtotal < businessSettings.minimumOrderValue) {
+      const amountNeeded = (businessSettings.minimumOrderValue - subtotal).toFixed(2);
+      Alert.alert(
+        'Minimum Order Value',
+        `Your order must be at least ₹${businessSettings.minimumOrderValue.toFixed(2)} to check out. You need to add ₹${amountNeeded} more to proceed.`,
+        [
+          { text: 'OK', style: 'cancel' },
+          {
+            text: 'Add More Items',
+            onPress: navigateToMenu
+          }
+        ]
+      );
+      return;
+    }
+
     setCheckoutStep('address');
   };
 
@@ -522,6 +659,32 @@ const Cart = () => {
   const calculateAddOnPrice = (item: CartItem): number => {
     if (!item.addOns || item.addOns.length === 0) return 0;
     return item.addOns.reduce((total: number, addOn: SelectedAddOn) => total + addOn.price, 0);
+  };
+
+  // Function to format discount description
+  const formatDiscountDescription = (offer: Offer): string => {
+    let description = '';
+    
+    if (offer.discountType === 'percentage') {
+      description = `${offer.discountValue}% off`;
+      if (offer.maxDiscountAmount) {
+        description += ` up to ₹${offer.maxDiscountAmount}`;
+      }
+    } else {
+      description = `₹${offer.discountValue} off`;
+    }
+    
+    if (offer.minOrderValue > 0) {
+      description += ` on orders above ₹${offer.minOrderValue}`;
+    }
+    
+    return description;
+  };
+
+  // Function to handle promo code selection
+  const handleSelectPromoCode = (code: string) => {
+    setOfferCode(code);
+    applyOfferCode(code);
   };
 
   // Render different components based on checkout step
@@ -691,9 +854,17 @@ const Cart = () => {
             showsVerticalScrollIndicator={false}
           />
 
-          {/* Offer Code Section */}
+          {/* Offer Code Section - Enhanced with available promo codes */}
           <View style={styles.offerContainer}>
-            <Text style={styles.offerTitle}>Have a promo code?</Text>
+            <View style={styles.offerTitleRow}>
+              <Text style={styles.offerTitle}>Have a promo code?</Text>
+              <TouchableOpacity 
+                onPress={() => setShowPromoModal(true)}
+                style={styles.viewOffersButton}
+              >
+                <Text style={styles.viewOffersText}>View Available Offers</Text>
+              </TouchableOpacity>
+            </View>
 
             {!appliedDiscount ? (
               // Offer code input when no discount is applied
@@ -758,6 +929,34 @@ const Cart = () => {
 
           <View style={styles.orderSummary}>
             <Text style={styles.summaryTitle}>Order Summary</Text>
+
+            {/* Minimum Order Value Indicator */}
+            {!isLoadingSettings && (
+              <View style={styles.minimumOrderContainer}>
+                {!isMinimumOrderMet ? (
+                  <>
+                    <Text style={styles.minimumOrderText}>
+                      Add ₹{(businessSettings.minimumOrderValue - subtotal).toFixed(2)} more to reach minimum order of ₹{businessSettings.minimumOrderValue}
+                    </Text>
+                    <View style={styles.progressBarContainer}>
+                      <View 
+                        style={[
+                          styles.progressBar, 
+                          { width: `${Math.min((subtotal / businessSettings.minimumOrderValue) * 100, 100)}%` }
+                        ]} 
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.minimumOrderMetContainer}>
+                    <Text style={styles.minimumOrderMetText}>
+                      Minimum order value of ₹{businessSettings.minimumOrderValue} met
+                    </Text>
+                    <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
+                  </View>
+                )}
+              </View>
+            )}
 
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal</Text>
@@ -838,9 +1037,12 @@ const Cart = () => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.checkoutButton, cartIsEmpty && styles.checkoutButtonDisabled]}
+                style={[
+                  styles.checkoutButton, 
+                  (cartIsEmpty || !isMinimumOrderMet) && styles.checkoutButtonDisabled
+                ]}
                 onPress={handleProceedToCheckout}
-                disabled={cartIsEmpty}
+                disabled={cartIsEmpty || !isMinimumOrderMet}
               >
                 <Text style={styles.checkoutButtonText}>
                   Checkout
@@ -851,6 +1053,85 @@ const Cart = () => {
           </View>
         </View>
       )}
+
+      {/* Promo Code Selection Modal */}
+      <Modal
+        visible={showPromoModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowPromoModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Available Offers</Text>
+              <TouchableOpacity
+                onPress={() => setShowPromoModal(false)}
+                style={styles.closeButton}
+              >
+                <AntDesign name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {loadingOffers ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#FF6B00" />
+                <Text style={styles.loadingText}>Loading offers...</Text>
+              </View>
+            ) : availableOffers.length === 0 ? (
+              <View style={styles.emptyOffersContainer}>
+                <Entypo name="ticket" size={48} color="#DDD" />
+                <Text style={styles.emptyOffersText}>No offers available at the moment</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.offersScrollView} showsVerticalScrollIndicator={false}>
+                {availableOffers.map((offer, index) => (
+                  <View key={offer._id} style={styles.offerCard}>
+                    <LinearGradient
+                      colors={promoThemes[index % promoThemes.length].gradientColors}
+                      start={{ x: 0.0, y: 0.0 }}
+                      end={{ x: 1.0, y: 1.0 }}
+                      style={styles.offerCardGradient}
+                    >
+                      <View style={styles.offerCardContent}>
+                        <View style={styles.offerCardHeader}>
+                          <Text style={styles.offerCardTitle}>{offer.title}</Text>
+                          <View style={styles.offerCodeBadge}>
+                            <Text style={styles.offerCodeText}>{offer.code}</Text>
+                          </View>
+                        </View>
+                        
+                        <Text style={styles.offerCardDescription}>
+                          {formatDiscountDescription(offer)}
+                        </Text>
+                        
+                        <TouchableOpacity 
+                          style={styles.applyOfferButton}
+                          onPress={() => handleSelectPromoCode(offer.code)}
+                          disabled={subtotal < offer.minOrderValue || isApplyingOffer}
+                        >
+                          {isApplyingOffer && offerCode === offer.code ? (
+                            <ActivityIndicator size="small" color="#FF6B00" />
+                          ) : (
+                            <Text style={styles.applyOfferButtonText}>
+                              {subtotal < offer.minOrderValue 
+                                ? `Add ₹${(offer.minOrderValue - subtotal).toFixed(2)} more to apply` 
+                                : 'Apply'}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+
+                        {/* Decorative elements */}
+                        <View style={styles.decorCircle}></View>
+                      </View>
+                    </LinearGradient>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1009,11 +1290,24 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  offerTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
   offerTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 10,
+  },
+  viewOffersButton: {
+    paddingVertical: 4,
+  },
+  viewOffersText: {
+    color: '#FF6B00',
+    fontSize: 13,
+    fontWeight: '500',
   },
   offerInputContainer: {
     flexDirection: 'row',
@@ -1135,6 +1429,36 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 15,
   },
+  // Minimum order value styles
+  minimumOrderContainer: {
+    marginBottom: 15,
+  },
+  minimumOrderText: {
+    fontSize: 13,
+    color: '#FF6B00',
+    marginBottom: 5,
+  },
+  minimumOrderMetContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  minimumOrderMetText: {
+    fontSize: 13,
+    color: '#4CAF50',
+    marginRight: 5,
+  },
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: '#EDEDED',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#FF6B00',
+    borderRadius: 3,
+  },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1249,7 +1573,129 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 9,
     fontWeight: '600',
-  }
+  },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingHorizontal: 15,
+    paddingBottom: 30,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingHorizontal: 5,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButton: {
+    padding: 5,
+  },
+  offersScrollView: {
+    maxHeight: '70%',
+  },
+  offerCard: {
+    marginBottom: 15,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  offerCardGradient: {
+    padding: 15,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  offerCardContent: {
+    zIndex: 2,
+  },
+  offerCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  offerCardTitle: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  offerCodeBadge: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 4,
+  },
+  offerCodeText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  offerCardDescription: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    marginBottom: 15,
+  },
+  applyOfferButton: {
+    backgroundColor: '#FFF',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+  },
+  applyOfferButtonText: {
+    color: '#FF6B00',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  decorCircle: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    bottom: -50,
+    right: -20,
+    zIndex: -1,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#666',
+  },
+  emptyOffersContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyOffersText: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 15,
+    textAlign: 'center',
+  },
 });
 
 export default Cart;

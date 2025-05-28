@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, ActivityIndicator } from 'react-native';
-import { LogOut, User, Gift, ChevronRight, Edit, Check, X, Phone, Mail, MapPin } from 'lucide-react-native';
+import { LogOut, User, Check, X, Phone, Mail } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/store';
@@ -46,12 +46,11 @@ updateProfile: (state, action: PayloadAction<{
   name?: string;
   email?: string;
   phone?: string;
-  address?: string;
 }>) => {
   if (action.payload.name) state.name = action.payload.name;
   if (action.payload.email) state.email = action.payload.email;
-  // We don't update phone and address here as they're not in the state
-  // but they will be handled by the userProfile object
+  // We don't update phone here as it's not in the state
+  // but it will be handled by the userProfile object
 }
 */
 
@@ -72,7 +71,6 @@ export default function ProfileScreen() {
     name: name || '',
     email: email || '',
     phone: '',
-    address: '',
     _id: ''
   });
 
@@ -86,7 +84,6 @@ export default function ProfileScreen() {
         name: name || 'Guest User',
         email: email || 'guest@example.com',
         phone: '',
-        address: '',
         _id: ''
       });
     }
@@ -111,7 +108,6 @@ export default function ProfileScreen() {
           name: data.name || '',
           email: data.email || '',
           phone: data.phone || '',
-          address: data.address || '',
           _id: data._id || ''
         });
       } else {
@@ -170,8 +166,7 @@ export default function ProfileScreen() {
         body: JSON.stringify({
           name: userProfile.name,
           email: userProfile.email,
-          phone: userProfile.phone,
-          address: userProfile.address
+          phone: userProfile.phone
         }),
       });
 
@@ -207,11 +202,6 @@ export default function ProfileScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // Function to handle navigation to today's offers
-  const navigateToTodaysOffers = () => {
-    router.push('/todays-offers');
   };
 
   const handleLogout = async () => {
@@ -263,8 +253,7 @@ export default function ProfileScreen() {
     value: string, 
     placeholder: string, 
     keyboardType: 'default' | 'email-address' | 'phone-pad' = 'default',
-    isEditable: boolean = true,
-    multiline: boolean = false
+    isEditable: boolean = true
   ) => {
     // For fields that shouldn't be edited (like email for existing users)
     const isFieldEditing = isEditing && isEditable;
@@ -278,16 +267,11 @@ export default function ProfileScreen() {
             
             {isFieldEditing ? (
               <TextInput
-                style={[
-                  styles.input, 
-                  multiline && styles.textArea
-                ]}
+                style={styles.input}
                 value={value}
                 onChangeText={(text) => handleInputChange(field, text)}
                 placeholder={placeholder}
                 keyboardType={keyboardType}
-                multiline={multiline}
-                numberOfLines={multiline ? 4 : 1}
               />
             ) : (
               <Text style={styles.fieldValue}>{value || placeholder}</Text>
@@ -326,7 +310,7 @@ export default function ProfileScreen() {
             {isGuest && <Text style={styles.guestBadge}>Guest User</Text>}
           </View>
           
-          {!isGuest && !isLoading && (
+          {/* {!isGuest && !isLoading && (
             <TouchableOpacity 
               style={styles.editButton} 
               onPress={toggleEditMode}
@@ -338,12 +322,11 @@ export default function ProfileScreen() {
                 </>
               ) : (
                 <>
-                  <Edit size={16} color="#FF6B00" />
                   <Text style={styles.editButtonText}>Edit</Text>
                 </>
               )}
             </TouchableOpacity>
-          )}
+          )} */}
         </View>
       </View>
 
@@ -371,25 +354,14 @@ export default function ProfileScreen() {
               false // Email shouldn't be editable for existing users
             )}
             
-            {renderFieldEditor(
+            {/* {renderFieldEditor(
               <Phone size={20} color="#F59E0B" />,
               'Phone Number',
               'phone',
               userProfile.phone,
               'Add a phone number',
               'phone-pad'
-            )}
-            
-            {renderFieldEditor(
-              <MapPin size={20} color="#EC4899" />,
-              'Delivery Address',
-              'address',
-              userProfile.address,
-              'Add a delivery address',
-              'default',
-              true,
-              true
-            )}
+            )} */}
           </View>
           
           {isEditing && (
@@ -408,23 +380,6 @@ export default function ProfileScreen() {
               )}
             </TouchableOpacity>
           )}
-        </View>
-        
-        <View style={styles.section}>
-          {/* Today's Offers Menu Item */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={navigateToTodaysOffers}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: '#F59E0B20' }]}>
-              <Gift size={20} color="#F59E0B" />
-            </View>
-            <View style={styles.menuItemContent}>
-              <Text style={styles.menuItemText}>Today's Offers</Text>
-              <Text style={styles.menuItemDescription}>Check out special deals</Text>
-            </View>
-            <ChevronRight size={18} color="#999" />
-          </TouchableOpacity>
         </View>
 
         <TouchableOpacity 
@@ -590,10 +545,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     marginTop: 4,
   },
-  textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
   saveButton: {
     backgroundColor: '#FF6B00',
     borderRadius: 8,
@@ -613,47 +564,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
   },
-  section: {
-    padding: 20,
-    paddingTop: 0,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  menuItemContent: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  menuItemText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  menuItemDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
-  },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
     marginHorizontal: 20,
+    marginTop: 30,
     marginBottom: 20,
     backgroundColor: '#FF4B4B20',
     borderRadius: 12,

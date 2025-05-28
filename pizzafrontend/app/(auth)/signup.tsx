@@ -526,7 +526,7 @@ export default function SignupScreen() {
           {/* Header with image and overlay */}
           <View style={styles.header}>
             <Image
-              source={{ uri: 'https://img.freepik.com/free-photo/smiling-good-looking-deliveryman-with-pizza-boxes_273609-31433.jpg?t=st=1745241002~exp=1745244602~hmac=91c441ad50fc982982c159788a95388da7e9484819564ee5a6f8b1a59c6999fc&w=1380' }}
+              source={require('../../assets/images/auth.png')}
               style={styles.headerImage}
               resizeMode="cover"
             />

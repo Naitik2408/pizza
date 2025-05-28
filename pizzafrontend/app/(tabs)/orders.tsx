@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSelector } from 'react-redux';
-import { MapPin, Clock, Star, ChevronDown, ArrowLeft, X, AlertCircle, LogIn, ShoppingBag } from 'lucide-react-native';
+import { MapPin, Clock, Star, ChevronDown, ArrowLeft, AlertCircle, LogIn, ShoppingBag } from 'lucide-react-native';
 import { API_URL } from '@/config';
 import { RootState } from '../../redux/store';
 
@@ -292,7 +292,7 @@ export default function OrdersScreen() {
   // Format date for display
   const formatDate = (dateString: string): string => {
     if (!dateString) return 'Unknown date';
-    
+
     try {
       const date = new Date(dateString);
       const today = new Date();
@@ -320,62 +320,6 @@ export default function OrdersScreen() {
       console.error('Error formatting date:', e);
       return 'Invalid date';
     }
-  };
-
-  // Cancel an order - updated to use the unified status update endpoint
-  const handleCancelOrder = async (orderId: string) => {
-    Alert.alert(
-      'Cancel Order',
-      'Are you sure you want to cancel this order?',
-      [
-        {
-          text: 'No',
-          style: 'cancel'
-        },
-        {
-          text: 'Yes, Cancel',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Use the unified status update endpoint
-              const response = await fetch(`${API_URL}/api/orders/${orderId}/status`, {
-                method: 'PUT',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                  status: 'Cancelled',
-                  note: 'Cancelled by customer through app'
-                })
-              });
-
-              if (!response.ok) {
-                const errorData = await response.json();
-                
-                // Handle specific error codes
-                if (response.status === 400) {
-                  throw new Error(errorData.message || 'Order cannot be cancelled at this stage');
-                } else if (response.status === 403) {
-                  throw new Error(errorData.message || 'You are not authorized to cancel this order');
-                } else {
-                  throw new Error(errorData.message || 'Failed to cancel order');
-                }
-              }
-
-              // Show success message
-              Alert.alert('Success', 'Your order has been cancelled successfully');
-
-              // Refresh orders
-              fetchUserOrders();
-            } catch (err: any) {
-              console.error('Error cancelling order:', err);
-              Alert.alert('Error', err.message || 'Failed to cancel order. Please try again.');
-            }
-          }
-        }
-      ]
-    );
   };
 
   // Submit a rating for an order
@@ -443,7 +387,7 @@ export default function OrdersScreen() {
   };
 
   // Render order items
-  const renderOrderItems = (items: OrderItem[]): JSX.Element[] => {
+  const renderOrderItems = (items: OrderItem[]): React.ReactNode[] => {
     return items.map((item, index) => (
       <View key={index} style={styles.orderItem}>
         <Image
@@ -471,14 +415,14 @@ export default function OrdersScreen() {
               Add-ons: {item.addOns.map(addon => addon.name).join(', ')}
             </Text>
           )}
-          
+
           {/* Display toppings if available */}
           {item.toppings && item.toppings.length > 0 && (
             <Text style={styles.itemCustomizations}>
               Toppings: {item.toppings.map(topping => topping.name).join(', ')}
             </Text>
           )}
-          
+
           {/* Display special instructions if available */}
           {item.specialInstructions && (
             <Text style={styles.itemCustomizations}>
@@ -492,11 +436,11 @@ export default function OrdersScreen() {
   };
 
   // Render invoice details
-  const renderInvoice = (order: Order): JSX.Element => {
+  const renderInvoice = (order: Order): React.ReactNode => {
     // Use order's specific breakdown if available, otherwise estimate
-    const subtotal = order.subTotal || order.items.reduce((sum, item) => 
+    const subtotal = order.subTotal || order.items.reduce((sum, item) =>
       sum + ((item.totalItemPrice || item.price) * item.quantity), 0);
-    
+
     const tax = order.tax || (order.amount * 0.05); // Use provided tax or estimate at 5%
     const deliveryFee = order.deliveryFee || (order.amount - subtotal - tax);
     const discount = order.discounts?.amount || 0;
@@ -554,7 +498,7 @@ export default function OrdersScreen() {
     name: string;
     phone: string;
     photo?: string;
-  } | null | undefined): JSX.Element | null => {
+  } | null | undefined): React.ReactNode | null => {
     if (!agent) return null;
 
     return (
@@ -571,7 +515,7 @@ export default function OrdersScreen() {
             <Text style={styles.agentName}>{agent.name || 'Delivery Agent'}</Text>
             <Text style={styles.agentPhone}>{agent.phone || 'Contact not available'}</Text>
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.callButton}
             onPress={() => {
               // Handle calling the delivery agent
@@ -580,7 +524,7 @@ export default function OrdersScreen() {
                 // Linking.openURL(`tel:${agent.phone}`);
                 Alert.alert('Call Agent', `Call ${agent.name} at ${agent.phone}?`, [
                   { text: 'Cancel', style: 'cancel' },
-                  { text: 'Call', onPress: () => {} }
+                  { text: 'Call', onPress: () => { } }
                 ]);
               } else {
                 Alert.alert('Contact Unavailable', 'Delivery agent contact information is not available.');
@@ -595,7 +539,7 @@ export default function OrdersScreen() {
   };
 
   // Render status timeline
-  const renderStatusTimeline = (statusUpdates: StatusUpdate[]): JSX.Element => {
+  const renderStatusTimeline = (statusUpdates: StatusUpdate[]): React.ReactNode => {
     if (!statusUpdates || statusUpdates.length === 0) {
       return <View />;
     }
@@ -606,7 +550,7 @@ export default function OrdersScreen() {
         {statusUpdates.map((update, index) => (
           <View key={index} style={styles.timelineItem}>
             <View style={[
-              styles.timelineDot, 
+              styles.timelineDot,
               { backgroundColor: getStatusColor(update.status) }
             ]} />
             {index !== statusUpdates.length - 1 && <View style={styles.timelineLine} />}
@@ -717,16 +661,6 @@ export default function OrdersScreen() {
             </View>
 
             {renderInvoice(order)}
-
-            {(order.status === 'Pending' || order.status === 'Preparing') && (
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => handleCancelOrder(order._id)}
-              >
-                <X size={16} color="#fff" />
-                <Text style={styles.cancelButtonText}>Cancel Order</Text>
-              </TouchableOpacity>
-            )}
           </View>
         )}
 
@@ -1304,21 +1238,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     marginRight: 4,
-  },
-  cancelButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FF3B30',
-    paddingVertical: 12,
-    borderRadius: 25,
-    marginTop: 15,
-  },
-  cancelButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 6,
   },
   loadingContainer: {
     alignItems: 'center',

@@ -34,6 +34,15 @@ import {
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  cancelAnimation,
+  Easing
+} from 'react-native-reanimated';
 
 interface Offer {
   _id: string;
@@ -53,6 +62,86 @@ interface Offer {
 }
 
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 44 : StatusBar.currentHeight || 0;
+
+// Skeleton component for loading animation
+const Skeleton = ({
+  width,
+  height,
+  style,
+}: {
+  width: number | string;
+  height: number | string;
+  style?: any;
+}) => {
+  const opacity = useSharedValue(0.5);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 750, easing: Easing.ease }),
+        withTiming(0.5, { duration: 750, easing: Easing.ease })
+      ),
+      -1,
+      true
+    );
+
+    return () => {
+      cancelAnimation(opacity);
+    };
+  }, [opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          backgroundColor: '#E0E0E0',
+          borderRadius: 4,
+        },
+        animatedStyle,
+        style,
+      ]}
+    />
+  );
+};
+
+// Skeleton for offer card
+const OfferCardSkeleton = () => (
+  <View style={styles.offerCard}>
+    <View style={styles.offerHeader}>
+      <View>
+        <Skeleton width={150} height={20} style={{ marginBottom: 8 }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Skeleton width={16} height={16} style={{ borderRadius: 8, marginRight: 4 }} />
+          <Skeleton width={100} height={14} />
+        </View>
+      </View>
+      <Skeleton width={70} height={24} style={{ borderRadius: 16 }} />
+    </View>
+
+    <Skeleton width="100%" height={40} style={{ marginVertical: 12 }} />
+
+    <View style={styles.offerDetails}>
+      <Skeleton width={80} height={20} style={{ borderRadius: 4, marginRight: 12 }} />
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Skeleton width={16} height={16} style={{ borderRadius: 8, marginRight: 4 }} />
+        <Skeleton width={120} height={14} />
+      </View>
+    </View>
+
+    <Skeleton width={100} height={14} style={{ marginVertical: 8 }} />
+
+    <View style={[styles.offerActions, { justifyContent: 'flex-end', marginTop: 8 }]}>
+      <Skeleton width={70} height={32} style={{ borderRadius: 4, marginRight: 12 }} />
+      <Skeleton width={70} height={32} style={{ borderRadius: 4 }} />
+    </View>
+  </View>
+);
 
 const OfferManagement = () => {
   const router = useRouter();
@@ -434,33 +523,25 @@ const OfferManagement = () => {
     </View>
   );
 
-  // Render loading state
-  if (loading && !refreshing) {
+  // Render skeleton loading
+  const renderSkeletonOffers = () => {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#FF6B00" />
-        <Text style={styles.loadingText}>Loading offers...</Text>
-      </SafeAreaView>
+      <ScrollView 
+        style={styles.contentContainer} 
+        contentContainerStyle={styles.listContainer}
+      >
+        {[1, 2, 3, 4].map((item) => (
+          <OfferCardSkeleton key={`skeleton-${item}`} />
+        ))}
+      </ScrollView>
     );
-  }
-
-  // Render error state
-  if (error && !refreshing) {
-    return (
-      <SafeAreaView style={[styles.safeArea, styles.centerContent]}>
-        <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={() => fetchOffers()}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar backgroundColor="#f5f5f5" barStyle="dark-content" />
 
-      {/* Header */}
+      {/* Header - Always visible */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <ChevronLeft size={24} color="#333" />
@@ -474,42 +555,54 @@ const OfferManagement = () => {
             setCurrentOffer(null);
             setModalVisible(true);
           }}
+          disabled={loading && !refreshing}
         >
           <Plus size={24} color="#FF6B00" />
         </TouchableOpacity>
       </View>
 
-      {/* Offer list */}
-      <FlatList
-        data={offers}
-        renderItem={renderOfferItem}
-        keyExtractor={(item) => item._id}
-        contentContainerStyle={styles.listContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={["#FF6B00"]}
-            tintColor="#FF6B00"
-          />
-        }
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No offers found</Text>
-            <TouchableOpacity
-              style={styles.addFirstButton}
-              onPress={() => {
-                resetForm();
-                setIsEditing(false);
-                setCurrentOffer(null);
-                setModalVisible(true);
-              }}
-            >
-              <Text style={styles.addFirstButtonText}>Add Your First Offer</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      />
+      {/* Content area with appropriate state (loading, error, or data) */}
+      {loading && !refreshing ? (
+        renderSkeletonOffers()
+      ) : error ? (
+        <View style={[styles.contentContainer, styles.centerContent]}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => fetchOffers()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={offers}
+          renderItem={renderOfferItem}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#FF6B00"]}
+              tintColor="#FF6B00"
+            />
+          }
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No offers found</Text>
+              <TouchableOpacity
+                style={styles.addFirstButton}
+                onPress={() => {
+                  resetForm();
+                  setIsEditing(false);
+                  setCurrentOffer(null);
+                  setModalVisible(true);
+                }}
+              >
+                <Text style={styles.addFirstButtonText}>Add Your First Offer</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        />
+      )}
 
       {/* Add/Edit Offer Modal */}
       <Modal
@@ -802,6 +895,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F9FA',
     paddingTop: STATUSBAR_HEIGHT,
+  },
+  contentContainer: {
+    flex: 1,
   },
   centerContent: {
     justifyContent: 'center',
