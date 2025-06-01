@@ -25,7 +25,8 @@
           "color": "#FF6B00",
           "sounds": ["./assets/notification_sound.wav"]
         }
-      ]
+      ],
+      ["./plugins/withRazorpay.js"]
     ],
     "experiments": {
       "typedRoutes": true

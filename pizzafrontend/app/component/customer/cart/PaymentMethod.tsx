@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -9,13 +9,15 @@ import {
     Alert,
     Platform,
     ActivityIndicator,
-    TextInput
+    TextInput,
+    Linking,
+    Modal
 } from 'react-native';
 import { AntDesign, FontAwesome, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../../../redux/store';
-// @ts-ignore: Module has no type definitions
-import RazorpayCheckout from 'react-native-razorpay';
+import { WebView } from 'react-native-webview';
+import { PAYMENT_CONFIG, API_URL } from '@/config';
 import {
     clearCart,
     selectCartItems,
@@ -23,10 +25,19 @@ import {
     selectDeliveryFee,
     selectTaxAmount,
     selectTotal
-} from '../../../../redux/slices/cartSlice'; // Import the selectors
-import { API_URL } from '@/config';
+} from '../../../../redux/slices/cartSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import uuid from 'react-native-uuid';
+
+// Import Razorpay - try different import approaches
+let RazorpayCheckout: any;
+try {
+    // Attempt to import using require to prevent TypeScript issues
+    RazorpayCheckout = require('react-native-razorpay');
+} catch (error) {
+    console.error('Failed to load Razorpay module:', error);
+    RazorpayCheckout = null;
+}
 
 interface PaymentMethodProps {
     onBack: () => void;
@@ -45,8 +56,23 @@ interface PaymentMethodProps {
     };
 }
 
+interface RazorpaySuccessResponse {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+    [key: string]: any; // For any additional fields Razorpay might return
+}
 
-// First, add these interfaces at the top of your file, below your existing interfaces
+interface RazorpayErrorResponse {
+    code?: string;
+    description?: string;
+    source?: string;
+    step?: string;
+    reason?: string;
+    metadata?: any;
+    [key: string]: any; // For any additional fields Razorpay might return
+}
+
 interface CustomizationItem {
     name: string;
     option: string;
@@ -59,13 +85,14 @@ interface AddOnItem {
     price: number;
 }
 
-
 const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMethodProps) => {
     const [selectedMethod, setSelectedMethod] = useState<'razorpay' | 'cod'>('razorpay');
     const [isProcessingPayment, setIsProcessingPayment] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
+    const [showWebView, setShowWebView] = useState(false);
+    const [webViewUrl, setWebViewUrl] = useState('');
 
-    // For guest users who want to provide minimal contact info
+    // Guest user state
     const [guestName, setGuestName] = useState<string>('');
     const [guestPhone, setGuestPhone] = useState<string>(deliveryAddress.phone || '');
     const [guestPhoneError, setGuestPhoneError] = useState<string | null>(null);
@@ -73,27 +100,42 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
 
     const dispatch = useDispatch();
 
-    // Access auth state directly matching the actual slice structure
+    // Auth state
     const auth = useSelector((state: RootState) => state.auth);
     const { token, name, email, isGuest } = auth;
 
-    // Use safe default values
+    // User info with fallbacks
     const userName = name || 'Guest';
     const userEmail = email || 'guest@example.com';
+    const phone = deliveryAddress.phone || guestPhone || '';
 
-    // Get phone from deliveryAddress or use a default
-    const phone = deliveryAddress.phone || guestPhone || '9999999999';
-
-    // Access cart state using selectors
+    // Cart state
     const cartItems = useSelector(selectCartItems);
     const subtotal = useSelector(selectSubtotal);
     const deliveryFee = useSelector(selectDeliveryFee);
     const tax = useSelector(selectTaxAmount);
     const total = useSelector(selectTotal);
 
-    // Get discount information
+    // Discount information
     const appliedDiscount = useSelector((state: RootState) => state.cart.discount);
     const discountAmount = useSelector((state: RootState) => state.cart.discountAmount || 0);
+
+    // Check if Razorpay SDK is available
+    const [isRazorpayAvailable, setIsRazorpayAvailable] = useState<boolean>(false);
+    
+    // Check Razorpay availability
+    useEffect(() => {
+        checkRazorpayAvailability();
+    }, []);
+
+    const checkRazorpayAvailability = () => {
+        if (RazorpayCheckout && typeof RazorpayCheckout.open === 'function') {
+            setIsRazorpayAvailable(true);
+        } else {
+            console.log('Razorpay SDK is not properly loaded. Will use WebView fallback if needed.');
+            setIsRazorpayAvailable(false);
+        }
+    };
 
     // Helper function to store guest orders in AsyncStorage
     const storeGuestOrder = async (orderData: any) => {
@@ -105,16 +147,14 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
             // Add new order with a unique ID and timestamp
             const newOrder = {
                 ...orderData,
-                _id: uuid.v4(), // Generate a unique ID
-                orderNumber: `GO-${Date.now().toString().slice(-6)}`, // Guest Order number
+                _id: uuid.v4(),
+                orderNumber: `GO-${Date.now().toString().slice(-6)}`,
                 status: 'Pending',
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
 
             const updatedOrders = [...existingOrders, newOrder];
-
-            // Store updated orders
             await AsyncStorage.setItem('guestOrders', JSON.stringify(updatedOrders));
 
             return newOrder;
@@ -124,6 +164,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
         }
     };
 
+    // Validate guest information
     const validateGuestInfo = () => {
         let isValid = true;
 
@@ -138,20 +179,19 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
         return isValid;
     };
 
-    // Inside the createOrder function, update the formattedItems section:
+    // Create order function
     const createOrder = async (paymentMethod: 'Online' | 'Cash on Delivery', paymentDetails?: any) => {
         setIsProcessingPayment(true);
         setApiError(null);
 
         try {
-            // If guest user and guest info is not collected yet
+            // Handle guest user info collection
             if (isGuest && !showGuestInfoForm) {
                 setShowGuestInfoForm(true);
                 setIsProcessingPayment(false);
                 return;
             }
 
-            // If guest user and form is shown, validate info
             if (isGuest && showGuestInfoForm) {
                 if (!validateGuestInfo()) {
                     setIsProcessingPayment(false);
@@ -159,26 +199,11 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 }
             }
 
-            // Format the items for the API - THIS IS THE KEY SECTION TO FIX
-            // First, add these interfaces at the top of your file, below your existing interfaces
-            interface CustomizationItem {
-                name: string;
-                option: string;
-                price: number;
-            }
-
-            interface AddOnItem {
-                name: string;
-                option: string;
-                price: number;
-            }
-
-            // Then in your createOrder function, update the arrays with explicit types:
+            // Format cart items for the API
             const formattedItems = cartItems.map(item => {
-                // Create proper arrays for customizations with explicit type
+                // Format customizations
                 let customizationsArray: CustomizationItem[] = [];
                 if (item.customizations) {
-                    // Convert object format to array format
                     customizationsArray = Object.entries(item.customizations).map(([name, option]) => ({
                         name,
                         option: typeof option === 'string' ? option : option.name,
@@ -186,21 +211,15 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                     }));
                 }
 
-                // Create proper array for add-ons with explicit type
+                // Format add-ons
                 let addOnsArray: AddOnItem[] = [];
                 if (item.addOns && Array.isArray(item.addOns) && item.addOns.length > 0) {
                     addOnsArray = item.addOns.map(addon => ({
                         name: addon.name,
-                        option: addon.name, // Use name as option if not provided
+                        option: addon.name,
                         price: addon.price || 0
                     }));
                 }
-
-                // Log the processed data for debugging
-                console.log(`Processing item ${item.name}:`, {
-                    customizations: customizationsArray,
-                    addOns: addOnsArray
-                });
 
                 return {
                     menuItemId: item.id,
@@ -214,7 +233,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 };
             });
 
-            // Prepare the order data
+            // Prepare order data
             const orderData = {
                 items: formattedItems,
                 amount: total,
@@ -238,24 +257,16 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 notes: ''
             };
 
-            // Log the full order data for debugging
-            console.log('Sending order data to API:', JSON.stringify(orderData, null, 2));
-
             // For guest users, store locally and don't send to server
             if (isGuest) {
                 try {
                     const savedOrder = await storeGuestOrder(orderData);
-
-                    // Clear the cart
                     dispatch(clearCart());
-
-                    // Complete the order process
                     onPaymentComplete({
                         method: paymentMethod === 'Online' ? 'razorpay' : 'cod',
                         details: paymentDetails,
                         orderId: savedOrder.orderNumber
                     });
-
                     return;
                 } catch (error) {
                     throw new Error('Failed to save your order. Please try again.');
@@ -267,7 +278,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 throw new Error('You must be logged in to place an order');
             }
 
-            // Make the API call to create the order using fetch
+            // Make API call to create order
             const response = await fetch(`${API_URL}/api/orders`, {
                 method: 'POST',
                 headers: {
@@ -277,19 +288,14 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 body: JSON.stringify(orderData)
             });
 
-            // Check if the response is successful
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.message || 'Failed to create order');
             }
 
-            // Parse the response data
             const data = await response.json();
-
-            // Clear the cart after successful order creation
             dispatch(clearCart());
 
-            // Pass the response to the onPaymentComplete callback
             onPaymentComplete({
                 method: paymentMethod === 'Online' ? 'razorpay' : 'cod',
                 details: paymentDetails,
@@ -298,12 +304,10 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
 
         } catch (error) {
             console.error('Create order error:', error);
-
             let errorMessage = 'Failed to create order. Please try again.';
             if (error instanceof Error) {
                 errorMessage = error.message;
             }
-
             setApiError(errorMessage);
             Alert.alert('Order Error', errorMessage);
         } finally {
@@ -311,20 +315,151 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
         }
     };
 
+    // Function to create Razorpay order from backend
+    const createRazorpayOrder = async () => {
+        try {
+            // For guest users, we'll generate a mock order ID
+            if (isGuest) {
+                return { id: `guest_order_${Date.now()}` };
+            }
+
+            const response = await fetch(`${API_URL}/api/transactions/create-razorpay-order`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    amount: Math.round(total * 100), // Convert to paise
+                    currency: 'INR',
+                    receipt: `receipt_${Date.now()}`
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to create Razorpay order');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Create Razorpay order error:', error);
+            throw error;
+        }
+    };
+
+    // WebView fallback for payment
+    const startWebViewPayment = async () => {
+        try {
+            // Get order ID from backend
+            const orderData = await createRazorpayOrder();
+            const orderAmount = Math.round(total * 100);
+
+            // Create a simple HTML page for Razorpay checkout
+            const htmlContent = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Razorpay Payment</title>
+                    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+                </head>
+                <body style="display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f8f9fa;">
+                    <div id="payment-message" style="text-align:center;font-family:sans-serif;">
+                        <h2>Initializing Payment...</h2>
+                        <p>Please wait while we redirect you to the payment gateway.</p>
+                    </div>
+                    
+                    <script>
+                        document.addEventListener('DOMContentLoaded', function() {
+                            var options = {
+                                key: "${PAYMENT_CONFIG.razorpay.keyId}",
+                                amount: ${orderAmount},
+                                currency: "${PAYMENT_CONFIG.razorpay.currency}",
+                                name: "${PAYMENT_CONFIG.razorpay.name}",
+                                description: "Payment for food order",
+                                image: "https://i.imgur.com/3g7nmJC.png",
+                                order_id: "${orderData.id}",
+                                prefill: {
+                                    name: "${isGuest ? (guestName || 'Guest') : userName}",
+                                    email: "${isGuest ? 'guest@example.com' : userEmail}",
+                                    contact: "${isGuest ? guestPhone : phone}"
+                                },
+                                theme: {
+                                    color: "#FF6B00"
+                                },
+                                handler: function(response) {
+                                    // Post message to React Native
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                                        type: 'payment_success',
+                                        data: response
+                                    }));
+                                }
+                            };
+                            
+                            var rzp = new Razorpay(options);
+                            rzp.on('payment.failed', function(response) {
+                                window.ReactNativeWebView.postMessage(JSON.stringify({
+                                    type: 'payment_failed',
+                                    data: response.error
+                                }));
+                            });
+                            
+                            // Open automatically
+                            setTimeout(() => {
+                                rzp.open();
+                            }, 1000);
+                        });
+                    </script>
+                </body>
+                </html>
+            `;
+
+            // Set web view URL
+            setWebViewUrl(`data:text/html;base64,${Buffer.from(htmlContent).toString('base64')}`);
+            setShowWebView(true);
+
+        } catch (error) {
+            console.error('WebView payment error:', error);
+            Alert.alert('Payment Error', 'An error occurred while setting up payment');
+            setIsProcessingPayment(false);
+        }
+    };
+
+    // Handle WebView messages
+    const handleWebViewMessage = (event: any) => {
+        try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === 'payment_success') {
+                setShowWebView(false);
+                // Process successful payment
+                if (!isGuest) {
+                    verifyPayment(data.data, data.data.razorpay_order_id);
+                } else {
+                    createOrder('Online', data.data);
+                }
+            } else if (data.type === 'payment_failed') {
+                setShowWebView(false);
+                Alert.alert('Payment Failed', data.data.description || 'Your payment was not completed');
+                setIsProcessingPayment(false);
+            }
+        } catch (error) {
+            console.error('Error processing WebView message:', error);
+        }
+    };
+
+    // Handle Razorpay payment
     const handleRazorpayPayment = async () => {
         if (isProcessingPayment) return;
-
         setIsProcessingPayment(true);
 
         try {
-            // If guest user and guest info is not collected yet
+            // Handle guest user info collection
             if (isGuest && !showGuestInfoForm) {
                 setShowGuestInfoForm(true);
                 setIsProcessingPayment(false);
                 return;
             }
 
-            // If guest user and form is shown, validate info
             if (isGuest && showGuestInfoForm) {
                 if (!validateGuestInfo()) {
                     setIsProcessingPayment(false);
@@ -332,50 +467,63 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 }
             }
 
-            // In a real app, you would get an order ID from your backend
-            const orderAmount = Math.round(total * 100); // Convert to paise, using discounted total
-            const orderId = `order_${Date.now()}`;
+            // Get order ID from backend
+            const orderData = await createRazorpayOrder();
+            const orderAmount = Math.round(total * 100); // Convert to paise
 
+            // Check if Razorpay SDK is available
+            console.log("Razorpay SDK check:", RazorpayCheckout, isRazorpayAvailable);
+            
+            // If SDK is not available, use WebView fallback
+            if (!isRazorpayAvailable) {
+                console.log("Using WebView for payment");
+                startWebViewPayment();
+                return;
+            }
+
+            // Prepare Razorpay options
             const options = {
                 description: 'Payment for food order',
-                image: 'https://i.imgur.com/3g7nmJC.png', // Your restaurant logo
-                currency: 'INR',
-                key: 'rzp_test_key', // Replace with your actual key
+                image: 'https://i.imgur.com/3g7nmJC.png',
+                currency: PAYMENT_CONFIG.razorpay.currency,
+                key: PAYMENT_CONFIG.razorpay.keyId,
                 amount: orderAmount,
-                name: 'PizzaBolt',
-                order_id: orderId,
+                name: PAYMENT_CONFIG.razorpay.name,
+                order_id: orderData.id, // Include order ID for server verification
                 prefill: {
                     email: isGuest ? 'guest@example.com' : userEmail,
                     contact: isGuest ? guestPhone : phone,
                     name: isGuest ? (guestName || 'Guest') : userName,
                 },
-                theme: { color: '#FF6B00' }
+                theme: { color: '#FF6B00' },
+                retry: { enabled: false }, // Disable retry to prevent double payments
+                send_sms_hash: true, // Enables automatic OTP verification for UPI
             };
 
-            // Mock successful payment for demo purposes
-            // In a real app, you would use actual Razorpay checkout
-            setTimeout(() => {
-                const successResponse = {
-                    razorpay_payment_id: `pay_${Date.now()}`,
-                    razorpay_order_id: orderId,
-                    razorpay_signature: 'mock_signature',
-                };
-
-                // Create order with the payment details
-                createOrder('Online', successResponse);
-            }, 2000);
-
-            // Uncomment this for actual Razorpay integration
-            /*
-            RazorpayCheckout.open(options).then((data) => {
-              // Handle success
-              createOrder('Online', data);
-            }).catch((error) => {
-              // Handle failure
-              Alert.alert('Payment Failed', error.description || 'Something went wrong');
-              setIsProcessingPayment(false);
-            });
-            */
+            console.log("Opening Razorpay with options:", options);
+            
+            // Open Razorpay checkout
+            RazorpayCheckout.open(options)
+                .then((data: RazorpaySuccessResponse) => {
+                    // Handle success
+                    console.log('Payment success:', data);
+                    // Verify payment with your backend if not a guest
+                    if (!isGuest) {
+                        verifyPayment(data, orderData.id);
+                    } else {
+                        // For guest, proceed without verification
+                        createOrder('Online', data);
+                    }
+                })
+                .catch((error: RazorpayErrorResponse) => {
+                    // Handle failure
+                    console.log('Payment error:', error);
+                    Alert.alert(
+                        'Payment Failed',
+                        error.description || 'Something went wrong with your payment'
+                    );
+                    setIsProcessingPayment(false);
+                });
         } catch (error) {
             console.error('Razorpay error:', error);
             Alert.alert('Payment Error', 'An error occurred while processing your payment');
@@ -383,11 +531,48 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
         }
     };
 
+    // Verify Razorpay payment with backend
+    const verifyPayment = async (paymentData: any, orderId: string) => {
+        try {
+            // Change this URL from /api/payments/verify to /api/transactions/verify-payment
+            const response = await fetch(`${API_URL}/api/transactions/verify-payment`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    razorpay_payment_id: paymentData.razorpay_payment_id,
+                    razorpay_order_id: orderId,
+                    razorpay_signature: paymentData.razorpay_signature
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || !data.verified) {
+                throw new Error('Payment verification failed. Please contact customer support.');
+            }
+
+            // Payment verified, create order
+            createOrder('Online', paymentData);
+        } catch (error) {
+            console.error('Payment verification error:', error);
+            let errorMessage = 'Payment verification failed. Please contact customer support.';
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            }
+            Alert.alert('Verification Error', errorMessage);
+            setIsProcessingPayment(false);
+        }
+    };
+
+    // Handle COD payment
     const handleCODPayment = () => {
-        // Process cash on delivery by creating an order
         createOrder('Cash on Delivery');
     };
 
+    // Handle payment based on selected method
     const handlePayment = () => {
         if (selectedMethod === 'razorpay') {
             handleRazorpayPayment();
@@ -413,6 +598,57 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 <View style={{ width: 24 }} />
             </View>
 
+            {/* WebView Modal for Payment */}
+            {showWebView && (
+                <Modal
+                    visible={showWebView}
+                    onRequestClose={() => {
+                        setShowWebView(false);
+                        setIsProcessingPayment(false);
+                    }}
+                    animationType="slide"
+                >
+                    <View style={styles.webViewContainer}>
+                        <View style={styles.webViewHeader}>
+                            <TouchableOpacity 
+                                onPress={() => {
+                                    setShowWebView(false);
+                                    setIsProcessingPayment(false);
+                                }}
+                                style={styles.webViewCloseBtn}
+                            >
+                                <AntDesign name="close" size={24} color="#333" />
+                            </TouchableOpacity>
+                            <Text style={styles.webViewTitle}>Complete Payment</Text>
+                            <View style={{ width: 24 }} />
+                        </View>
+                        
+                        <WebView
+                            source={{ uri: webViewUrl }}
+                            onMessage={handleWebViewMessage}
+                            javaScriptEnabled={true}
+                            domStorageEnabled={true}
+                            startInLoadingState={true}
+                            renderLoading={() => (
+                                <View style={styles.loaderContainer}>
+                                    <ActivityIndicator size="large" color="#FF6B00" />
+                                    <Text style={styles.loaderText}>Loading payment gateway...</Text>
+                                </View>
+                            )}
+                            onError={(error) => {
+                                console.error('WebView error:', error);
+                                Alert.alert(
+                                    'Payment Error',
+                                    'Failed to load payment gateway. Please try again.'
+                                );
+                                setShowWebView(false);
+                                setIsProcessingPayment(false);
+                            }}
+                        />
+                    </View>
+                </Modal>
+            )}
+
             {/* Guest mode banner */}
             {isGuest && (
                 <View style={styles.guestBanner}>
@@ -425,7 +661,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
 
             {/* If guest user and we need to collect info */}
             {isGuest && showGuestInfoForm ? (
-                <ScrollView 
+                <ScrollView
                     style={styles.content}
                     contentContainerStyle={{ paddingBottom: 100 }}
                 >
@@ -501,9 +737,9 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 </ScrollView>
             ) : (
                 // Regular payment flow
-                <ScrollView 
+                <ScrollView
                     style={styles.content}
-                    contentContainerStyle={{ paddingBottom: 100 }} // Added padding bottom of 100px
+                    contentContainerStyle={{ paddingBottom: 100 }}
                 >
                     {/* Delivery Address Summary */}
                     <View style={styles.section}>
@@ -539,7 +775,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                         >
                             <View style={styles.paymentOptionLeft}>
                                 <Image
-                                    source={{ uri: 'https://i.imgur.com/3g7nmJC.png' }} // Replace with Razorpay logo
+                                    source={{ uri: 'https://i.imgur.com/3g7nmJC.png' }}
                                     style={styles.paymentLogo}
                                 />
                                 <View>
@@ -630,6 +866,16 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                             <MaterialIcons name="info-outline" size={18} color="#666" />
                             <Text style={styles.guestInfoText}>
                                 As a guest user, you'll be asked for minimal contact information when you proceed.
+                            </Text>
+                        </View>
+                    )}
+                    
+                    {/* SDK Status Info */}
+                    {!isRazorpayAvailable && selectedMethod === 'razorpay' && (
+                        <View style={styles.warningContainer}>
+                            <MaterialIcons name="info" size={18} color="#FF6B00" />
+                            <Text style={styles.warningText}>
+                                We'll use a secure web interface for online payment since the native payment module isn't available.
                             </Text>
                         </View>
                     )}
@@ -896,8 +1142,25 @@ const styles = StyleSheet.create({
         color: '#D32F2F',
         fontSize: 14,
     },
+    warningContainer: {
+        flexDirection: 'row',
+        backgroundColor: '#FFF8E1',
+        padding: 12,
+        borderRadius: 8,
+        marginTop: 8,
+        marginBottom: 16,
+        borderLeftWidth: 4,
+        borderLeftColor: '#FF9800',
+    },
+    warningText: {
+        flex: 1,
+        marginLeft: 8,
+        fontSize: 13,
+        color: '#F57C00',
+        lineHeight: 18,
+    },
 
-    // New guest-specific styles
+    // Guest-specific styles
     guestInfoNote: {
         flexDirection: 'row',
         backgroundColor: '#F5F5F5',
@@ -988,6 +1251,41 @@ const styles = StyleSheet.create({
     },
     disabledButton: {
         backgroundColor: '#CCCCCC',
+    },
+    
+    // WebView styles
+    webViewContainer: {
+        flex: 1,
+        backgroundColor: '#fff',
+    },
+    webViewHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingTop: Platform.OS === 'ios' ? 50 : 20,
+        paddingBottom: 16,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: '#EEEEEE',
+    },
+    webViewTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    webViewCloseBtn: {
+        padding: 8,
+    },
+    loaderContainer: {
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#fff',
+    },
+    loaderText: {
+        marginTop: 10,
+        color: '#555',
     },
 });
 
