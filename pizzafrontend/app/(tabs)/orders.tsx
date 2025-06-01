@@ -154,7 +154,7 @@ export default function OrdersScreen() {
     );
   };
 
-  // Function to fetch user orders
+  // Function to fetch user orders with improved error handling
   const fetchUserOrders = useCallback(async () => {
     // Don't fetch orders if user is a guest or no token is available
     if (isGuest || !token) {
@@ -176,24 +176,52 @@ export default function OrdersScreen() {
         }
       });
 
+      // Handle 204 No Content response (no orders found)
+      if (response.status === 204) {
+        console.log('No orders found (204 No Content)');
+        setCurrentOrders([]);
+        setPastOrders([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // Handle authentication errors specifically
+      if (response.status === 401) {
+        console.log('Authentication error - token may be expired or invalid');
+        // You might want to dispatch logout action here if using Redux
+        // dispatch(logout());
+        throw new Error('Your session has expired. Please log in again.');
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || 'Failed to fetch orders');
       }
 
       const data = await response.json();
-      console.log(`Received ${data.length || 0} orders from API`);
+
+      // Handle case where data might be empty object or null
+      if (!data || (typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0)) {
+        console.log('Empty response data');
+        setCurrentOrders([]);
+        setPastOrders([]);
+        return;
+      }
+
+      console.log(`Received ${Array.isArray(data) ? data.length : 'non-array'} response from API`);
 
       // Ensure we're handling both array and paginated response formats
+      // Also handle the case where backend returns {orders: []} format on error
       const ordersArray = Array.isArray(data) ? data : (data.orders || []);
 
       // Filter orders into current and past orders
       const currentOrdersData = ordersArray.filter((order: Order) =>
-        order.status !== 'Delivered' && order.status !== 'Cancelled'
+        order && order.status !== 'Delivered' && order.status !== 'Cancelled'
       );
 
       const pastOrdersData = ordersArray.filter((order: Order) =>
-        order.status === 'Delivered' || order.status === 'Cancelled'
+        order && (order.status === 'Delivered' || order.status === 'Cancelled')
       );
 
       // Process orders to ensure all fields are present
@@ -228,7 +256,20 @@ export default function OrdersScreen() {
     } catch (err) {
       console.error('Error fetching orders:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Failed to load your orders: ${errorMessage}`);
+
+      // Show more user-friendly errors for auth issues
+      if (errorMessage.includes('session has expired') ||
+        errorMessage.includes('token expired') ||
+        errorMessage.includes('invalid token') ||
+        errorMessage.includes('Not authorized')) {
+        setError('Your login session has expired. Please sign in again.');
+      } else {
+        setError(`Failed to load your orders: ${errorMessage}`);
+      }
+
+      // Set empty arrays to ensure UI doesn't crash
+      setCurrentOrders([]);
+      setPastOrders([]);
     } finally {
       setLoading(false);
       setRefreshing(false);

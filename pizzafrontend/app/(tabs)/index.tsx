@@ -97,27 +97,27 @@ function HomeScreen() {
 
 
   const offerThemes = [
-  {
-    bgColor: '#FF5722',
-    gradientColors: ['#FF9800', '#FF5722'] as const // Using 'as const' to make it a readonly tuple
-  },
-  {
-    bgColor: '#2196F3',
-    gradientColors: ['#03A9F4', '#1976D2'] as const
-  },
-  {
-    bgColor: '#4CAF50',
-    gradientColors: ['#8BC34A', '#388E3C'] as const
-  },
-  {
-    bgColor: '#9C27B0',
-    gradientColors: ['#BA68C8', '#7B1FA2'] as const
-  },
-  {
-    bgColor: '#F44336',
-    gradientColors: ['#FF5252', '#D32F2F'] as const
-  }
-];
+    {
+      bgColor: '#FF5722',
+      gradientColors: ['#FF9800', '#FF5722'] as const // Using 'as const' to make it a readonly tuple
+    },
+    {
+      bgColor: '#2196F3',
+      gradientColors: ['#03A9F4', '#1976D2'] as const
+    },
+    {
+      bgColor: '#4CAF50',
+      gradientColors: ['#8BC34A', '#388E3C'] as const
+    },
+    {
+      bgColor: '#9C27B0',
+      gradientColors: ['#BA68C8', '#7B1FA2'] as const
+    },
+    {
+      bgColor: '#F44336',
+      gradientColors: ['#FF5252', '#D32F2F'] as const
+    }
+  ];
 
   useEffect(() => {
     const fetchOffers = async () => {
@@ -372,109 +372,102 @@ function HomeScreen() {
         </ImageBackground>
 
         <View style={styles.mainContent}>
-          {/* Hot Offers Carousel - Enhanced Design */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleContainer}>
-                <Gift size={20} color="#FF9800" />
-                <Text style={styles.sectionTitle}>Hot Offers</Text>
+          {/* Hot Offers Carousel - Only shown when offers are available */}
+          {loadingOffers ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleContainer}>
+                  <Gift size={20} color="#FF9800" />
+                  <Text style={styles.sectionTitle}>Hot Offers</Text>
+                </View>
               </View>
-            </View>
-
-            {loadingOffers ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#FF9800" />
                 <Text style={styles.loadingText}>Loading offers...</Text>
               </View>
-            ) : offerError ? (
-              <View style={styles.errorContainer}>
-                <Text style={styles.errorText}>{offerError}</Text>
-              </View>
-            ) : offers.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No offers available at the moment</Text>
-              </View>
-            ) : (
-              <>
-                <Animated.FlatList
-                  data={offers}
-                  keyExtractor={(item) => item.id}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingLeft: 20, paddingBottom: 10, paddingTop: 5 }}
-                  snapToInterval={ITEM_WIDTH + SPACING}
-                  snapToAlignment="start"
-                  decelerationRate="fast"
-                  onScroll={handleOfferScroll}
-                  renderItem={({ item }) => (
-                    <View style={{ width: ITEM_WIDTH, marginRight: SPACING }}>
-                      <View
-                        style={[
-                          styles.offerCard,
-                        ]}
-                      >
-                        <LinearGradient
-                          colors={item.gradientColors}
-                          start={{ x: 0.0, y: 0.0 }}
-                          end={{ x: 1.0, y: 1.0 }}
-                          style={styles.offerCardGradient}
-                        >
-                          <View style={styles.offerBadgeContainer}>
-                            <View style={styles.offerBadge}>
-                              <Text style={styles.offerBadgeText}>{item.badge}</Text>
-                            </View>
-                          </View>
-
-                          <View style={styles.offerCardContent}>
-                            <Text style={styles.offerTitle} numberOfLines={1}>
-                              {item.title}
-                            </Text>
-                            <Text style={styles.offerSubtitle} numberOfLines={2}>
-                              {item.subtitle}
-                            </Text>
-
-                            {item.code && (
-                              <View style={styles.offerCodeContainer}>
-                                <Text style={styles.offerCodeLabel}>Use code</Text>
-                                <Text style={styles.offerCode}>{item.code}</Text>
-                              </View>
-                            )}
-
-                            <TouchableOpacity
-                              style={styles.offerActionButton}
-                              onPress={() => handleUseOffer(item.code || '')}
-                            >
-                              <Text style={styles.offerActionButtonText}>
-                                {item.code ? 'Apply Offer' : 'View Details'}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-
-                          {/* Decorative elements */}
-                          <View style={styles.decorCircle1}></View>
-                          <View style={styles.decorCircle2}></View>
-                          <View style={styles.decorCircle3}></View>
-                        </LinearGradient>
-                      </View>
-                    </View>
-                  )}
-                />
-
-                {/* Modern Pagination dots */}
-                <View style={styles.paginationDots}>
-                  {offers.map((_, index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.paginationDot,
-                        index === activeOfferIndex && styles.paginationDotActive,
-                      ]}
-                    />
-                  ))}
+            </View>
+          ) : offerError ? null : offers.length > 0 ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleContainer}>
+                  <Gift size={20} color="#FF9800" />
+                  <Text style={styles.sectionTitle}>Hot Offers</Text>
                 </View>
-              </>
-            )}
-          </View>
+              </View>
+              <Animated.FlatList
+                data={offers}
+                keyExtractor={(item) => item.id}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingLeft: 20, paddingBottom: 10, paddingTop: 5 }}
+                snapToInterval={ITEM_WIDTH + SPACING}
+                snapToAlignment="start"
+                decelerationRate="fast"
+                onScroll={handleOfferScroll}
+                renderItem={({ item }) => (
+                  <View style={{ width: ITEM_WIDTH, marginRight: SPACING }}>
+                    <View style={styles.offerCard}>
+                      <LinearGradient
+                        colors={item.gradientColors}
+                        start={{ x: 0.0, y: 0.0 }}
+                        end={{ x: 1.0, y: 1.0 }}
+                        style={styles.offerCardGradient}
+                      >
+                        <View style={styles.offerBadgeContainer}>
+                          <View style={styles.offerBadge}>
+                            <Text style={styles.offerBadgeText}>{item.badge}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.offerCardContent}>
+                          <Text style={styles.offerTitle} numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          <Text style={styles.offerSubtitle} numberOfLines={2}>
+                            {item.subtitle}
+                          </Text>
+
+                          {item.code && (
+                            <View style={styles.offerCodeContainer}>
+                              <Text style={styles.offerCodeLabel}>Use code</Text>
+                              <Text style={styles.offerCode}>{item.code}</Text>
+                            </View>
+                          )}
+
+                          <TouchableOpacity
+                            style={styles.offerActionButton}
+                            onPress={() => handleUseOffer(item.code || '')}
+                          >
+                            <Text style={styles.offerActionButtonText}>
+                              {item.code ? 'Apply Offer' : 'View Details'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Decorative elements */}
+                        <View style={styles.decorCircle1}></View>
+                        <View style={styles.decorCircle2}></View>
+                        <View style={styles.decorCircle3}></View>
+                      </LinearGradient>
+                    </View>
+                  </View>
+                )}
+              />
+
+              {/* Modern Pagination dots */}
+              <View style={styles.paginationDots}>
+                {offers.map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.paginationDot,
+                      index === activeOfferIndex && styles.paginationDotActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null} {/* Complete section is hidden when no offers available */}
 
           {/* Popular Items Section - Enhanced Design */}
           <View style={styles.section}>
@@ -505,8 +498,22 @@ function HomeScreen() {
                 <Text style={styles.errorText}>{popularItemsError}</Text>
               </View>
             ) : popularItems.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No popular items available</Text>
+              <View style={styles.emptyPopularItemsContainer}>
+                <Image
+                  source={require('../../assets/images/empty-plate.png')}
+                  style={styles.emptyStateImage}
+                  defaultSource={require('../../assets/images/empty-plate.png')}
+                />
+                <Text style={styles.emptyStateTitleText}>Fresh Menu Coming Soon!</Text>
+                <Text style={styles.emptyStateText}>
+                  Our chefs are preparing something delicious. Check back later for our most popular dishes!
+                </Text>
+                <TouchableOpacity
+                  style={styles.emptyStateButton}
+                  onPress={navigateToMenu}
+                >
+                  <Text style={styles.emptyStateButtonText}>Browse Full Menu</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <View style={styles.popularItemsGrid}>
@@ -934,6 +941,55 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  // New empty state for popular items
+  emptyPopularItemsContainer: {
+    alignItems: 'center',
+    padding: 30,
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  emptyStateImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 15,
+    opacity: 0.7,
+  },
+  emptyStateTitleText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  emptyStateButton: {
+    backgroundColor: '#FF9800',
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  emptyStateButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+
   // Enhanced Popular Items Grid Layout
   popularItemsGrid: {
     flexDirection: 'row',
@@ -1050,8 +1106,7 @@ const styles = StyleSheet.create({
   addToCartIcon: {
     fontSize: 18,
     color: 'white',
-    fontWeight: 'bold',
-    lineHeight: 22,
+    fontWeight: 'bold'
   },
 
   // Skeleton loading for popular items
@@ -1093,7 +1148,7 @@ const styles = StyleSheet.create({
   storeInfoSection: {
     backgroundColor: '#FFFFFF',
     marginHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 40,
     marginTop: 10,
     borderRadius: 16,
     overflow: 'hidden',

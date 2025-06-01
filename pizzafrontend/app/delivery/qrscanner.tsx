@@ -11,9 +11,22 @@ import {
   Share,
   Dimensions,
   Linking,
-  FlatList
+  FlatList,
+  Animated
 } from 'react-native';
-import { ArrowLeft, Share2, RefreshCw, Clock, Copy, CheckCircle2, ExternalLink } from 'lucide-react-native';
+import { 
+  ArrowLeft, 
+  Share2, 
+  RefreshCw, 
+  Clock, 
+  Copy, 
+  CheckCircle2, 
+  ExternalLink, 
+  QrCode,
+  FileText,
+  AlertCircle,
+  DollarSign
+} from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { useRouter } from 'expo-router';
@@ -60,6 +73,95 @@ interface PendingPaymentOrder {
   date?: string;
   time?: string;
 }
+
+// Component for rendering the empty payments view
+interface EmptyPaymentsViewProps {
+  onRefresh: () => void;
+  refreshing: boolean;
+}
+
+const EmptyPaymentsView = ({ onRefresh, refreshing }: EmptyPaymentsViewProps) => {
+  const [pulseAnim] = useState(new Animated.Value(1));
+  
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          useNativeDriver: true
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true
+        })
+      ])
+    ).start();
+  }, []);
+
+  return (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyImageWrapper}>
+        <Image
+          source={{ uri: 'https://img.freepik.com/free-vector/no-data-concept-illustration_114360-536.jpg?w=1380' }}
+          style={styles.emptyImage}
+          resizeMode="contain"
+        />
+      </View>
+      
+      <View style={styles.emptyContent}>
+        <Text style={styles.emptyTitle}>No Pending Payments</Text>
+        <Text style={styles.emptySubText}>
+          There are currently no orders waiting for payment collection.
+        </Text>
+        
+        <View style={styles.emptyInfoContainer}>
+          <View style={styles.infoCard}>
+            <View style={styles.infoIconContainer}>
+              <FileText size={20} color="#1c1917" />
+            </View>
+            <Text style={styles.infoTitle}>Check Orders</Text>
+            <Text style={styles.infoText}>Go to assigned orders to see your deliveries</Text>
+          </View>
+          
+          <View style={styles.infoCard}>
+            <View style={styles.infoIconContainer}>
+              <AlertCircle size={20} color="#1c1917" />
+            </View>
+            <Text style={styles.infoTitle}>COD Orders</Text>
+            <Text style={styles.infoText}>Only cash on delivery orders appear here</Text>
+          </View>
+          
+          <View style={styles.infoCard}>
+            <View style={styles.infoIconContainer}>
+              <DollarSign size={20} color="#1c1917" />
+            </View>
+            <Text style={styles.infoTitle}>Payment</Text>
+            <Text style={styles.infoText}>Collect payments via UPI QR code</Text>
+          </View>
+        </View>
+
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={onRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <RefreshCw size={18} color="#FFFFFF" />
+                <Text style={styles.refreshButtonText}>Check for Payments</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    </View>
+  );
+};
 
 const QRPaymentScreen = () => {
   const router = useRouter();
@@ -349,13 +451,15 @@ const QRPaymentScreen = () => {
       style={styles.orderItem}
       onPress={() => selectOrder(item.id, item._id, item.amount, item.customerName)}
     >
-      <View>
-        <Text style={styles.orderIdText}>#{item.id}</Text>
+      <View style={styles.orderItemLeft}>
+        <Text style={styles.orderIdText}>Order #{item.id}</Text>
         <Text style={styles.customerNameText}>{item.customerName}</Text>
       </View>
       <View style={styles.orderAmountContainer}>
         <Text style={styles.orderAmountText}>₹{item.amount.toFixed(2)}</Text>
-        <Text style={styles.pendingText}>PENDING</Text>
+        <View style={styles.orderStatusBadge}>
+          <Text style={styles.orderStatusText}>PENDING</Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -364,7 +468,7 @@ const QRPaymentScreen = () => {
   if (businessSettingsLoading) {
     return (
       <SafeAreaView style={[styles.container, styles.centered]} edges={['top', 'left', 'right']}>
-        <ActivityIndicator size="large" color="#FF6B00" />
+        <ActivityIndicator size="large" color="#1c1917" />
         <Text style={styles.loadingText}>Loading payment details...</Text>
       </SafeAreaView>
     );
@@ -374,19 +478,19 @@ const QRPaymentScreen = () => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-          <ArrowLeft size={24} color="#2d3436" />
+          <ArrowLeft size={24} color="#1c1917" />
         </TouchableOpacity>
         <View>
-          <Text style={styles.title}>Payment QR</Text>
+          <Text style={styles.title}>Payment Collection</Text>
           <Text style={styles.subtitle}>
-            Scan to collect cash on delivery payments
+            Scan QR to collect cash on delivery payments
           </Text>
         </View>
       </View>
 
       {loading && !refreshing && !activeOrderId ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF6B00" />
+          <ActivityIndicator size="large" color="#1c1917" />
           <Text style={styles.loadingText}>Loading orders...</Text>
         </View>
       ) : (
@@ -395,62 +499,36 @@ const QRPaymentScreen = () => {
           showsVerticalScrollIndicator={false}
         >
           {!activeOrderId ? (
-            <View style={styles.selectOrderContainer}>
-              <View style={styles.sectionHeaderRow}>
+            <>
+              {/* <View style={styles.pageHeaderContainer}>
                 <View>
                   <Text style={styles.sectionTitle}>Pending Payments</Text>
                   <Text style={styles.sectionDescription}>
                     Select an order to generate payment QR
                   </Text>
                 </View>
-
-                <TouchableOpacity
-                  style={styles.refreshOrdersButton}
-                  onPress={handleOrdersRefresh}
-                  disabled={refreshing}
-                >
-                  {refreshing ? (
-                    <ActivityIndicator size="small" color="#FF6B00" />
-                  ) : (
-                    <RefreshCw size={18} color="#FF6B00" />
-                  )}
-                </TouchableOpacity>
-              </View>
-
+              </View> */}
+              
               {pendingPaymentOrders.length === 0 ? (
-                <View style={styles.noOrdersContainer}>
-                  <Text style={styles.noOrdersText}>No pending payments found</Text>
-                  <TouchableOpacity
-                    style={styles.refreshOrdersButtonLarge}
-                    onPress={handleOrdersRefresh}
-                    disabled={refreshing}
-                  >
-                    {refreshing ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <RefreshCw size={16} color="#FFFFFF" />
-                        <Text style={styles.refreshOrdersButtonText}>Refresh</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
+                <EmptyPaymentsView onRefresh={handleOrdersRefresh} refreshing={refreshing} />
               ) : (
-                <FlatList
-                  data={pendingPaymentOrders}
-                  renderItem={renderOrderItem}
-                  keyExtractor={(item) => item._id}
-                  scrollEnabled={false}
-                  style={styles.ordersList}
-                />
+                <View style={styles.selectOrderContainer}>
+                  <FlatList
+                    data={pendingPaymentOrders}
+                    renderItem={renderOrderItem}
+                    keyExtractor={(item) => item._id}
+                    scrollEnabled={false}
+                    style={styles.ordersList}
+                  />
+                </View>
               )}
-            </View>
+            </>
           ) : (
             <>
               <View style={styles.orderInfoContainer}>
                 <Text style={styles.customerNameLarge}>{paymentDetails.customerName}</Text>
                 <View style={styles.orderDetailRow}>
-                  <Text style={styles.orderIdLarge}>#{paymentDetails.orderId}</Text>
+                  <Text style={styles.orderIdLarge}>Order #{paymentDetails.orderId}</Text>
                   <Text style={styles.orderAmountLarge}>₹{paymentDetails.amount.toFixed(2)}</Text>
                 </View>
                 <TouchableOpacity
@@ -462,23 +540,30 @@ const QRPaymentScreen = () => {
               </View>
 
               <View style={styles.qrContainer}>
+                <View style={styles.qrHeaderRow}>
+                  <QrCode size={20} color="#1c1917" />
+                  <Text style={styles.qrTitle}>Payment QR Code</Text>
+                </View>
+                
                 {refreshing ? (
                   <View style={styles.refreshingContainer}>
-                    <ActivityIndicator size="large" color="#FF6B00" />
+                    <ActivityIndicator size="large" color="#1c1917" />
                     <Text style={styles.refreshingText}>Refreshing QR Code...</Text>
                   </View>
                 ) : (
                   <>
-                    <Image
-                      source={{ uri: getQRCodeUrl() }}
-                      style={styles.qrImage}
-                      resizeMode="contain"
-                    />
-                    <View style={styles.qrOverlay}>
+                    <View style={styles.qrImageContainer}>
                       <Image
-                        source={{ uri: 'https://i.imgur.com/8YsYwKL.png' }}
-                        style={styles.logoOverlay}
+                        source={{ uri: getQRCodeUrl() }}
+                        style={styles.qrImage}
+                        resizeMode="contain"
                       />
+                      <View style={styles.qrOverlay}>
+                        <Image
+                          source={{ uri: 'https://i.imgur.com/8YsYwKL.png' }}
+                          style={styles.logoOverlay}
+                        />
+                      </View>
                     </View>
                   </>
                 )}
@@ -489,7 +574,7 @@ const QRPaymentScreen = () => {
                     onPress={handleRefresh}
                     disabled={refreshing}
                   >
-                    <RefreshCw size={16} color="#FF6B00" />
+                    <RefreshCw size={16} color="#FFFFFF" />
                     <Text style={styles.refreshButtonText}>Refresh QR</Text>
                   </TouchableOpacity>
 
@@ -503,6 +588,11 @@ const QRPaymentScreen = () => {
               </View>
 
               <View style={styles.paymentDetailsContainer}>
+                <View style={styles.paymentDetailHeader}>
+                  <FileText size={18} color="#1c1917" />
+                  <Text style={styles.paymentDetailHeaderText}>Payment Details</Text>
+                </View>
+                
                 <View style={styles.paymentDetailRow}>
                   <Text style={styles.paymentDetailLabel}>Shop Name</Text>
                   <Text style={styles.paymentDetailValue}>{shopPaymentDetails.merchantName}</Text>
@@ -512,8 +602,12 @@ const QRPaymentScreen = () => {
                   <Text style={styles.paymentDetailLabel}>UPI ID</Text>
                   <View style={styles.paymentDetailValueContainer}>
                     <Text style={styles.paymentDetailValue}>{shopPaymentDetails.upiId}</Text>
-                    <TouchableOpacity onPress={copyUpiId}>
-                      <Copy size={16} color="#FF6B00" />
+                    <TouchableOpacity 
+                      style={styles.copyButton} 
+                      onPress={copyUpiId}
+                    >
+                      <Copy size={16} color="#FFFFFF" />
+                      <Text style={styles.copyButtonText}>Copy</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -532,13 +626,17 @@ const QRPaymentScreen = () => {
                   style={styles.upiAppButton}
                   onPress={openUpiApp}
                 >
-                  <ExternalLink size={16} color="#FFFFFF" />
+                  <ExternalLink size={18} color="#FFFFFF" />
                   <Text style={styles.upiAppButtonText}>Open in UPI App</Text>
                 </TouchableOpacity>
               </View>
 
               <View style={styles.instructionsContainer}>
-                <Text style={styles.instructionsTitle}>Payment Instructions</Text>
+                <View style={styles.instructionsHeader}>
+                  <AlertCircle size={18} color="#1c1917" />
+                  <Text style={styles.instructionsTitle}>Payment Instructions</Text>
+                </View>
+                
                 <View style={styles.instructionItem}>
                   <View style={styles.instructionNumber}>
                     <Text style={styles.instructionNumberText}>1</Text>
@@ -565,7 +663,7 @@ const QRPaymentScreen = () => {
                   onPress={sharePaymentDetails}
                 >
                   <Share2 size={20} color="#FFFFFF" />
-                  <Text style={styles.actionButtonText}>Share Payment</Text>
+                  <Text style={styles.actionButtonText}>Share Payment Details</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -616,7 +714,7 @@ const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f6fa',
+    backgroundColor: '#F9F9F9',
   },
   centered: {
     justifyContent: 'center',
@@ -626,9 +724,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#eaeaea',
+    borderBottomColor: '#F0F0F0',
   },
   backButton: {
     marginRight: 16,
@@ -636,7 +734,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#2d3436',
+    color: '#1c1917',
   },
   subtitle: {
     fontSize: 14,
@@ -647,16 +745,24 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 100,
   },
+  pageHeaderContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   selectOrderContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -667,7 +773,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#2d3436',
+    color: '#1c1917',
   },
   sectionDescription: {
     fontSize: 14,
@@ -675,27 +781,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   refreshOrdersButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f1f2f6',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  refreshOrdersButtonLarge: {
-    flexDirection: 'row',
-    backgroundColor: '#FF6B00',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  refreshOrdersButtonText: {
-    color: 'white',
-    marginLeft: 8,
-    fontWeight: '600',
   },
   ordersList: {
     marginTop: 8,
@@ -703,14 +794,18 @@ const styles = StyleSheet.create({
   orderItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
+  orderItemLeft: {
+    flex: 1,
+  },
   orderIdText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#2d3436',
+    color: '#1c1917',
   },
   customerNameText: {
     fontSize: 14,
@@ -721,32 +816,40 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   orderAmountText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#2d3436',
+    color: '#1c1917',
   },
-  pendingText: {
-    fontSize: 12,
+  orderStatusBadge: {
+    marginTop: 6,
+    backgroundColor: '#FFF0E6',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+  },
+  orderStatusText: {
+    fontSize: 10,
+    fontWeight: '700',
     color: '#FF6B00',
-    fontWeight: '600',
-    marginTop: 4,
   },
   orderInfoContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
   customerNameLarge: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2d3436',
-    marginBottom: 8,
+    color: '#1c1917',
+    marginBottom: 12,
   },
   orderDetailRow: {
     flexDirection: 'row',
@@ -758,44 +861,65 @@ const styles = StyleSheet.create({
     color: '#636e72',
   },
   orderAmountLarge: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#FF6B00',
+    color: '#1c1917',
   },
   changeOrderButton: {
-    marginTop: 16,
-    paddingVertical: 8,
+    marginTop: 20,
+    paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: '#F0F0F0',
     alignItems: 'center',
   },
   changeOrderText: {
     fontSize: 14,
-    color: '#3498db',
+    color: '#1c1917',
     fontWeight: '600',
   },
   qrContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 20,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  qrHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+  },
+  qrTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1c1917',
+    marginLeft: 8,
+  },
+  qrImageContainer: {
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+    position: 'relative',
   },
   refreshingContainer: {
     width: width * 0.7,
     height: width * 0.7,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#FAFAFA',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderStyle: 'dashed',
+    borderColor: '#F0F0F0',
   },
   refreshingText: {
     marginTop: 16,
@@ -805,7 +929,6 @@ const styles = StyleSheet.create({
   qrImage: {
     width: width * 0.7,
     height: width * 0.7,
-    marginVertical: 20,
   },
   qrOverlay: {
     position: 'absolute',
@@ -814,7 +937,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     marginLeft: -30,
-    marginTop: -10,
+    marginTop: -30,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -829,17 +952,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 16,
   },
   refreshButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    justifyContent: 'center',
+    backgroundColor: '#1c1917',
+    borderRadius: 30,
+    paddingVertical: 14,
+    paddingHorizontal: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
   },
   refreshButtonText: {
-    marginLeft: 6,
-    fontSize: 14,
-    color: '#FF6B00',
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   lastUpdatedContainer: {
@@ -852,15 +984,28 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   paymentDetailsContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  paymentDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  paymentDetailHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1c1917',
+    marginLeft: 8,
   },
   paymentDetailRow: {
     flexDirection: 'row',
@@ -868,7 +1013,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#F0F0F0',
   },
   paymentDetailLabel: {
     fontSize: 14,
@@ -881,57 +1026,78 @@ const styles = StyleSheet.create({
   paymentDetailValue: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#2d3436',
-    marginRight: 10,
+    color: '#1c1917',
+    marginRight: 12,
+  },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1c1917',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  copyButtonText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    marginLeft: 4,
   },
   upiAppButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FF6B00',
+    backgroundColor: '#1c1917',
     borderRadius: 8,
-    paddingVertical: 12,
-    marginTop: 16,
+    paddingVertical: 14,
+    marginTop: 20,
   },
   upiAppButtonText: {
     color: '#FFFFFF',
     fontWeight: '600',
-    marginLeft: 8,
-    fontSize: 14,
+    marginLeft: 10,
+    fontSize: 16,
   },
   instructionsContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  instructionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   instructionsTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2d3436',
-    marginBottom: 16,
+    fontWeight: '600',
+    color: '#1c1917',
+    marginLeft: 8,
   },
   instructionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   instructionNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FF6B00',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1c1917',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 16,
   },
   instructionNumberText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -952,27 +1118,27 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   shareButton: {
-    backgroundColor: '#3498db',
+    backgroundColor: '#1c1917',
   },
   confirmButton: {
-    backgroundColor: '#27ae60',
+    backgroundColor: '#1c1917',
   },
   actionButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: 10,
   },
   footer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderTopWidth: 1,
-    borderTopColor: '#eaeaea',
+    borderTopColor: '#F0F0F0',
     alignItems: 'center',
   },
   footerText: {
@@ -990,15 +1156,91 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#636e72',
   },
-  noOrdersContainer: {
+  
+  // Empty state styles
+  emptyContainer: {
+    flex: 1,
+    backgroundColor: '#F9F9F9',
+    paddingVertical: 20,
     alignItems: 'center',
-    padding: 24,
   },
-  noOrdersText: {
-    fontSize: 16,
-    color: '#636e72',
+  emptyImageWrapper: {
+    width: '100%',
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
+  emptyImage: {
+    width: width * 0.7,
+    height: 180,
+  },
+  emptyContent: {
+    alignItems: 'center',
+    // paddingHorizontal: 16,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1c1917',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubText: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  emptyInfoContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  infoCard: {
+    width: '31%',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  infoIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  infoTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1c1917',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  infoText: {
+    fontSize: 10,
+    color: '#636e72',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  refreshOrdersButtonLarge: {
+    backgroundColor: '#1c1917',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  }
 });
 
 export default QRPaymentScreen;

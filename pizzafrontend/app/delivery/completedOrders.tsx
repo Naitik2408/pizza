@@ -8,9 +8,22 @@ import {
   Image,
   ActivityIndicator,
   RefreshControl,
-  Alert
+  Alert,
+  Animated,
+  Dimensions
 } from 'react-native';
-import { Star, ChevronRight, ArrowLeft } from 'lucide-react-native';
+import { 
+  Star, 
+  ChevronRight, 
+  ArrowLeft, 
+  Package, 
+  Calendar, 
+  Clock, 
+  User, 
+  RefreshCw,
+  Award,
+  TrendingUp
+} from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { API_URL } from '@/config';
@@ -36,6 +49,131 @@ interface CompletedOrder {
   feedback?: string;
   customerImage: string;
 }
+
+// Skeleton loading component with animation
+const OrderSkeleton = () => {
+  const [fadeAnim] = useState(new Animated.Value(0.3));
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [fadeAnim]);
+
+  const skeletonStyle = {
+    opacity: fadeAnim,
+  };
+
+  return (
+    <Animated.View style={[styles.orderCard, skeletonStyle]}>
+      <View style={styles.skeletonHeader} />
+      <View style={styles.skeletonCustomer} />
+      <View style={styles.skeletonRating} />
+      <View style={styles.skeletonDivider} />
+      <View style={styles.skeletonFooter} />
+    </Animated.View>
+  );
+};
+
+// Component for rendering the empty completed orders view
+interface EmptyOrdersViewProps {
+  onRefresh: () => void;
+  refreshing: boolean;
+}
+
+const EmptyCompletedOrdersView = ({ onRefresh, refreshing }: EmptyOrdersViewProps) => {
+  const [pulseAnim] = useState(new Animated.Value(1));
+  
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          useNativeDriver: true
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true
+        })
+      ])
+    ).start();
+  }, []);
+
+  return (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyImageWrapper}>
+        <Image
+          source={{ uri: 'https://img.freepik.com/free-vector/delivery-service-with-man-scooter-mask_23-2148496524.jpg?t=st=1748754922~exp=1748758522~hmac=116d975899ee795bba4775fb06daac7a35077de26e6dcd232a21880560c2f807&w=1380' }}
+          style={styles.emptyImage}
+          resizeMode="contain"
+        />
+      </View>
+      
+      <View style={styles.emptyContent}>
+        <Text style={styles.emptyTitle}>No Completed Deliveries Yet</Text>
+        {/* <Text style={styles.emptySubText}>
+          Your delivery history will appear here after you complete your first delivery.
+        </Text> */}
+      
+        <View style={styles.emptyInfoContainer}>
+          <View style={styles.infoCard}>
+            <View style={styles.infoIconContainer}>
+              <Package size={20} color="#1c1917" />
+            </View>
+            <Text style={styles.infoTitle}>Start Delivering</Text>
+            <Text style={styles.infoText}>Accept orders from the assigned orders tab</Text>
+          </View>
+          
+          <View style={styles.infoCard}>
+            <View style={styles.infoIconContainer}>
+              <Award size={20} color="#1c1917" />
+            </View>
+            <Text style={styles.infoTitle}>Earn Ratings</Text>
+            <Text style={styles.infoText}>Deliver on time for better ratings</Text>
+          </View>
+          
+          <View style={styles.infoCard}>
+            <View style={styles.infoIconContainer}>
+              <TrendingUp size={20} color="#1c1917" />
+            </View>
+            <Text style={styles.infoTitle}>Track Progress</Text>
+            <Text style={styles.infoText}>Monitor your earnings and performance</Text>
+          </View>
+        </View>
+
+        {/* <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={onRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <RefreshCw size={18} color="#FFFFFF" />
+                <Text style={styles.refreshButtonText}>Refresh</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </Animated.View> */}
+      </View>
+    </View>
+  );
+};
 
 const CompletedOrders = () => {
   const [selectedFilter, setSelectedFilter] = useState('All');
@@ -114,11 +252,11 @@ const CompletedOrders = () => {
 
         return {
           id: order.id || order._id,
-          date: order.date || '', // Use the date directly from backend
-          time: order.time || '', // Use the time directly from backend
+          date: formattedDate || '', 
+          time: formattedTime || '', 
           customerName: order.customerName || 'Unknown Customer',
           items: order.items || [],
-          total: order.total || 0, // Make sure we use the right property name
+          total: order.total || 0,
           commission: order.commission || 0,
           deliveryDuration: order.deliveryDuration || '30 min',
           rating: order.rating || 0,
@@ -169,7 +307,7 @@ const CompletedOrders = () => {
   };
 
   // Render star ratings
-  const renderRatingStars = (rating: number): JSX.Element => {
+  const renderRatingStars = (rating: number) => {
     return (
       <View style={styles.ratingContainer}>
         {[1, 2, 3, 4, 5].map((star) => (
@@ -184,17 +322,8 @@ const CompletedOrders = () => {
     );
   };
 
-  // Calculate statistics
-  const calculateStats = useCallback(() => {
-    return {
-      deliveries: completedOrders.length || 0,
-    };
-  }, [completedOrders]);
-
-  const stats = calculateStats();
-
   // Render order items
-  const renderOrderItem = ({ item }: { item: CompletedOrder }): JSX.Element => {
+  const renderOrderItem = ({ item }: { item: CompletedOrder }) => {
     const isExpanded = expandedOrder === item.id;
 
     return (
@@ -204,21 +333,30 @@ const CompletedOrders = () => {
         activeOpacity={0.7}
       >
         <View style={styles.orderHeader}>
-          <View style={styles.orderBasicInfo}>
+          <View style={styles.orderIdContainer}>
+            <Package size={16} color="#1c1917" />
             <Text style={styles.orderId}>#{item.id}</Text>
-            <View style={styles.timeContainer}>
-              <Text style={styles.orderDate}>{item.date} • {item.time}</Text>
-            </View>
+          </View>
+          <View style={styles.dateTimeContainer}>
+            <Calendar size={14} color="#666" />
+            <Text style={styles.orderDate}>{item.date}</Text>
+            <Clock size={14} color="#666" style={{marginLeft: 8}} />
+            <Text style={styles.orderDate}>{item.time}</Text>
           </View>
         </View>
 
         <View style={styles.customerSection}>
-          <Image
-            source={{ uri: item.customerImage }}
-            style={styles.customerImage}
-          />
+          <View style={styles.customerImageContainer}>
+            <Image
+              source={{ uri: item.customerImage }}
+              style={styles.customerImage}
+            />
+          </View>
           <View style={styles.customerInfo}>
-            <Text style={styles.customerName}>{item.customerName}</Text>
+            <View style={styles.customerNameContainer}>
+              <User size={14} color="#666" />
+              <Text style={styles.customerName}>{item.customerName}</Text>
+            </View>
             <View style={styles.deliveryInfo}>
               <Text style={styles.deliveryTime}>Delivered in {item.deliveryDuration}</Text>
               {renderRatingStars(item.rating)}
@@ -231,7 +369,7 @@ const CompletedOrders = () => {
             <Text style={styles.sectionTitle}>Order Items</Text>
             {item.items.map((orderItem, index) => (
               <View key={index} style={styles.orderItemRow}>
-                <Text style={styles.itemQuantity}>{orderItem.quantity}x</Text>
+                <Text style={styles.itemQuantity}>{orderItem.quantity}×</Text>
                 <Text style={styles.itemName}>{orderItem.name}</Text>
                 <Text style={styles.itemPrice}>₹{orderItem.price.toFixed(2)}</Text>
               </View>
@@ -242,6 +380,11 @@ const CompletedOrders = () => {
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total Order Value</Text>
               <Text style={styles.totalAmount}>₹{item.total.toFixed(2)}</Text>
+            </View>
+            
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Your Commission</Text>
+              <Text style={styles.commissionAmount}>₹{item.commission.toFixed(2)}</Text>
             </View>
 
             {item.feedback && (
@@ -261,7 +404,7 @@ const CompletedOrders = () => {
           </Text>
           <ChevronRight
             size={20}
-            color="#FF6B00"
+            color="#1c1917"
             style={{
               transform: [{ rotate: isExpanded ? '90deg' : '0deg' }]
             }}
@@ -271,19 +414,32 @@ const CompletedOrders = () => {
     );
   };
 
-  // Render loading state
+  // Render loading state with skeletons
   if (loading && !refreshing && completedOrders.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, styles.centerContent]} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <ArrowLeft size={24} color="#2d3436" />
+            <ArrowLeft size={24} color="#1c1917" />
           </TouchableOpacity>
-          <Text style={styles.title}>Completed Orders</Text>
+          <Text style={styles.title}>Delivery History</Text>
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF6B00" />
-          <Text style={styles.loadingText}>Loading orders...</Text>
+        
+        <View style={styles.dateFilterContainer}>
+          <FlatList
+            horizontal
+            data={filterOptions}
+            renderItem={({ item }) => (
+              <View style={styles.skeletonFilterOption} />
+            )}
+            keyExtractor={(item) => item}
+            showsHorizontalScrollIndicator={false}
+          />
+        </View>
+
+        <View style={styles.ordersList}>
+          <OrderSkeleton />
+          <OrderSkeleton />
         </View>
       </SafeAreaView>
     );
@@ -292,12 +448,12 @@ const CompletedOrders = () => {
   // Render error state
   if (error && !refreshing && completedOrders.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, styles.centerContent]} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <ArrowLeft size={24} color="#2d3436" />
+            <ArrowLeft size={24} color="#1c1917" />
           </TouchableOpacity>
-          <Text style={styles.title}>Completed Orders</Text>
+          <Text style={styles.title}>Delivery History</Text>
         </View>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
@@ -313,9 +469,9 @@ const CompletedOrders = () => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-          <ArrowLeft size={24} color="#222" />
+          <ArrowLeft size={24} color="#1c1917" />
         </TouchableOpacity>
-        <Text style={styles.title}>Completed Orders</Text>
+        <Text style={styles.title}>Delivery History</Text>
       </View>
 
       <View style={styles.dateFilterContainer}>
@@ -343,31 +499,8 @@ const CompletedOrders = () => {
         />
       </View>
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{stats.deliveries}</Text>
-          <Text style={styles.statLabel}>Total Deliveries</Text>
-        </View>
-      </View>
-
       {completedOrders.length === 0 && !loading ? (
-        <View style={styles.emptyContainer}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1586769852836-bc069f19e1be?w=200&auto=format&fit=crop' }}
-            style={styles.emptyImage}
-          />
-          <Text style={styles.emptyText}>No completed orders</Text>
-          <Text style={styles.emptySubText}>You haven't completed any deliveries yet</Text>
-          <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={onRefresh}
-            disabled={refreshing}
-          >
-            <Text style={styles.refreshButtonText}>
-              {refreshing ? 'Refreshing...' : 'Refresh'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <EmptyCompletedOrdersView onRefresh={onRefresh} refreshing={refreshing} />
       ) : (
         <FlatList
           data={completedOrders}
@@ -379,10 +512,10 @@ const CompletedOrders = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#FF6B00']}
-              tintColor="#FF6B00"
-              title="Refreshing orders..."
-              titleColor="#636e72"
+              colors={['#1c1917']}
+              tintColor="#1c1917"
+              title="Refreshing history..."
+              titleColor="#666"
             />
           }
         />
@@ -391,20 +524,20 @@ const CompletedOrders = () => {
   );
 };
 
+const { width } = Dimensions.get('window');
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F6F6F6',
-  },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#F9F9F9',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 20,
     backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
   },
   backButton: {
     marginRight: 16,
@@ -412,53 +545,36 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#222',
+    color: '#1c1917',
   },
   dateFilterContainer: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 15,
     paddingVertical: 15,
+    paddingHorizontal: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    marginBottom: 10, // Added margin now that stats container is removed
   },
   dateFilterOption: {
-    paddingHorizontal: 15,
-    paddingVertical: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 20,
     marginRight: 10,
-    backgroundColor: '#F6F6F6',
+    backgroundColor: '#F0F0F0',
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
   selectedDateFilter: {
-    backgroundColor: '#FF6B00',
+    backgroundColor: '#1c1917',
+    borderColor: '#1c1917',
   },
   dateFilterText: {
     fontSize: 14,
+    fontWeight: '500',
     color: '#666',
   },
   selectedDateFilterText: {
     color: '#FFFFFF',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    marginBottom: 15,
-    justifyContent: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FF6B00',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
   },
   ordersList: {
     padding: 15,
@@ -468,66 +584,85 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     marginBottom: 15,
-    padding: 15,
+    padding: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
   expandedCard: {
-    backgroundColor: '#FFFFFF',
+    shadowOpacity: 0.1,
+    elevation: 3,
   },
   orderHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 15,
   },
-  orderBasicInfo: {
-    flex: 1,
+  orderIdContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   orderId: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#FF6B00',
+    color: '#1c1917',
+    marginLeft: 6,
   },
-  timeContainer: {
+  dateTimeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
   },
   orderDate: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
+    marginLeft: 4,
   },
   customerSection: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 15,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 10,
+    padding: 12,
+  },
+  customerImageContainer: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#F0F0F0',
   },
   customerImage: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    marginRight: 12,
   },
   customerInfo: {
     flex: 1,
+    marginLeft: 12,
+  },
+  customerNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   customerName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
-    color: '#333',
+    color: '#1c1917',
+    marginLeft: 6,
   },
   deliveryInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 6,
     justifyContent: 'space-between',
   },
   deliveryTime: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
   },
   ratingContainer: {
@@ -542,28 +677,30 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#333',
+    color: '#1c1917',
     marginBottom: 10,
   },
   orderItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
+    paddingHorizontal: 4,
   },
   itemQuantity: {
-    width: 30,
+    width: 25,
     fontSize: 14,
     color: '#666',
+    fontWeight: '500',
   },
   itemName: {
     flex: 1,
     fontSize: 14,
-    color: '#333',
+    color: '#1c1917',
   },
   itemPrice: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#FF6B00',
+    color: '#1c1917',
   },
   divider: {
     height: 1,
@@ -573,7 +710,8 @@ const styles = StyleSheet.create({
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 15,
+    marginBottom: 8,
+    paddingHorizontal: 4,
   },
   totalLabel: {
     fontSize: 14,
@@ -582,33 +720,45 @@ const styles = StyleSheet.create({
   totalAmount: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#FF6B00',
+    color: '#1c1917',
+  },
+  commissionAmount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2ECC71',
   },
   feedbackContainer: {
-    marginTop: 10,
+    marginTop: 16,
   },
   feedbackContent: {
-    backgroundColor: '#F9F9F9',
+    backgroundColor: '#FAFAFA',
     borderRadius: 8,
     padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FFB800',
   },
   feedbackText: {
     fontSize: 14,
-    color: '#555',
+    color: '#1c1917',
     fontStyle: 'italic',
+    lineHeight: 20,
   },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 15,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F5F5F5',
   },
   viewDetails: {
     fontSize: 14,
-    color: '#FF6B00',
+    color: '#1c1917',
     marginRight: 5,
     fontWeight: '500',
   },
+  // Loading and error states
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -617,7 +767,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#636e72',
+    color: '#666',
   },
   errorContainer: {
     flex: 1,
@@ -632,7 +782,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   retryButton: {
-    backgroundColor: '#FF6B00',
+    backgroundColor: '#1c1917',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
@@ -642,42 +792,145 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  // Empty state
   emptyContainer: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  emptyImageWrapper: {
+    width: '100%',
+    height: 220,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
-    paddingBottom: 120, // Extra padding for bottom navigation
+    marginTop: 20,
   },
   emptyImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: width * 0.8,
+    height: 200,
   },
-  emptyText: {
-    fontSize: 18,
+  emptyContent: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  emptyTitle: {
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#2d3436',
-    marginTop: 16,
+    color: '#1c1917',
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptySubText: {
-    fontSize: 14,
-    color: '#636e72',
+    fontSize: 15,
+    color: '#666',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 30,
+    lineHeight: 22,
+  },
+  emptyInfoContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 30,
+  },
+  infoCard: {
+    width: '30%',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 15,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  infoIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  infoTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1c1917',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  infoText: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 16,
   },
   refreshButton: {
-    backgroundColor: '#FF6B00',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
+    backgroundColor: '#1c1917',
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+    marginTop: 10,
   },
   refreshButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 8,
   },
+  // Skeleton UI styles
+  skeletonFilterOption: {
+    width: 80,
+    height: 36,
+    borderRadius: 20,
+    backgroundColor: '#E0E0E0',
+    marginRight: 10,
+  },
+  skeletonHeader: {
+    height: 20,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginBottom: 15,
+    width: '90%',
+  },
+  skeletonCustomer: {
+    height: 50,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  skeletonRating: {
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginBottom: 15,
+    width: '60%',
+    alignSelf: 'flex-end',
+  },
+  skeletonDivider: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    marginVertical: 10,
+  },
+  skeletonFooter: {
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    width: '40%',
+    alignSelf: 'center',
+    marginTop: 12,
+  }
 });
 
 export default CompletedOrders;

@@ -39,7 +39,7 @@ interface Discount {
   minOrderValue?: number; // Add minimum order value to discount
 }
 
-interface CartState {
+export interface CartState {
   items: CartItem[];
   deliveryFee: number;
   taxRate: number;

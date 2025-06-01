@@ -1,7 +1,8 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, ScrollView, Alert } from 'react-native';
 import { X, ShoppingBag, Check, User, Wifi, WifiOff, Clock, Info, RefreshCw } from 'lucide-react-native';
 import { API_URL } from '@/config';
+import { io, Socket } from 'socket.io-client';
 
 // Updated to match your User model structure with correct path to isOnline
 interface DeliveryAgent {
@@ -16,7 +17,6 @@ interface DeliveryAgent {
     isOnline?: boolean;
     lastActiveTime?: string;
   };
-  updatedAt?: string;
 }
 
 interface Order {
@@ -35,7 +35,7 @@ interface AssignAgentModalProps {
   onAssignAgent: (agentId: string | null, agentName: string) => void;
   isProcessing: boolean;
   token?: string;
-  onRefreshAgents?: () => Promise<void>; // Add this line
+  onRefreshAgents?: () => Promise<void>;
 }
 
 const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
@@ -46,17 +46,51 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
   onAssignAgent,
   isProcessing,
   token,
+  onRefreshAgents
 }) => {
   if (!order) return null;
 
   // State for refresh functionality
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [agents, setAgents] = useState<DeliveryAgent[]>(deliveryAgents);
   
-  // Update local state when prop changes
-  useEffect(() => {
-    setAgents(deliveryAgents);
-  }, [deliveryAgents]);
+  // Replace the formatLastSeen function with this custom implementation
+  const formatLastSeen = (timestamp?: string) => {
+    if (!timestamp) return "Unknown";
+
+    try {
+      const date = new Date(timestamp);
+      const now = new Date();
+
+      // Time difference in milliseconds
+      const diffMs = now.getTime() - date.getTime();
+
+      // Convert to seconds, minutes, hours, days
+      const diffSecs = Math.floor(diffMs / 1000);
+      const diffMins = Math.floor(diffSecs / 60);
+      const diffHours = Math.floor(diffMins / 60);
+      const diffDays = Math.floor(diffHours / 24);
+
+      // Format based on time difference
+      if (diffSecs < 60) {
+        return `${diffSecs} seconds ago`;
+      } else if (diffMins < 60) {
+        return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+      } else if (diffHours < 24) {
+        return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+      } else if (diffDays < 7) {
+        return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+      } else {
+        // For dates older than a week, show the actual date
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        return `on ${day}/${month}/${year}`;
+      }
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return "Unknown";
+    }
+  };
 
   // Function to refresh agents list
   const refreshAgentsList = async () => {
@@ -77,8 +111,13 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
       }
 
       const data = await response.json();
-      setAgents(data);
+      // No need to update local state, we'll rely on the parent component
       console.log("Refreshed agents list:", data.length, "agents found");
+      
+      // Notify parent component to update its state
+      if (onRefreshAgents) {
+        await onRefreshAgents();
+      }
     } catch (err) {
       console.error('Error refreshing agents:', err);
       Alert.alert('Error', 'Could not refresh delivery agents list');
@@ -88,7 +127,7 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
   };
 
   // Debug log to check delivery agents data
-  console.log("Delivery agents data:", agents.map(agent => ({
+  console.log("Delivery agents data:", deliveryAgents.map(agent => ({
     name: agent.name,
     isOnline: agent.deliveryDetails?.isOnline,
     lastActive: agent.deliveryDetails?.lastActiveTime
@@ -99,9 +138,8 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
     const online: DeliveryAgent[] = [];
     const offline: DeliveryAgent[] = [];
 
-    agents.forEach(agent => {
+    deliveryAgents.forEach(agent => {
       // Check isOnline status in the deliveryDetails object
-      // Make sure to check if deliveryDetails exists first
       if (agent.deliveryDetails && agent.deliveryDetails.isOnline === true) {
         online.push(agent);
       } else {
@@ -110,30 +148,7 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
     });
 
     return { onlineAgents: online, offlineAgents: offline };
-  }, [agents]);
-
-  // Format the last seen time
-  const formatLastSeen = (lastActiveTime?: string) => {
-    if (!lastActiveTime) return 'Unknown';
-
-    try {
-      const lastSeenDate = new Date(lastActiveTime);
-      const now = new Date();
-      const diffMs = now.getTime() - lastSeenDate.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-
-      if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins} min ago`;
-
-      const diffHours = Math.floor(diffMins / 60);
-      if (diffHours < 24) return `${diffHours} hours ago`;
-
-      const diffDays = Math.floor(diffHours / 24);
-      return `${diffDays} days ago`;
-    } catch (e) {
-      return 'Unknown';
-    }
-  };
+  }, [deliveryAgents]);
 
   // Handle assignment attempt for offline agents
   const handleOfflineAgentSelection = (agent: DeliveryAgent) => {
@@ -204,11 +219,11 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
             </View>
 
             {/* Refresh button */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[
                 styles.refreshButton,
                 isRefreshing && styles.refreshingButton
-              ]} 
+              ]}
               onPress={refreshAgentsList}
               disabled={isRefreshing || isProcessing}
               activeOpacity={0.7}
@@ -264,7 +279,7 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
                   <Wifi size={16} color="#2ECC71" />
                   <Text style={styles.agentGroupTitle}>Online Agents ({onlineAgents.length})</Text>
                 </View>
-                
+
                 <View style={styles.agentOptions}>
                   {onlineAgents.map((agent) => (
                     <TouchableOpacity
@@ -322,14 +337,14 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
                   <WifiOff size={16} color="#95A5A6" />
                   <Text style={styles.agentGroupTitle}>Offline Agents ({offlineAgents.length})</Text>
                 </View>
-                
+
                 <View style={styles.offlineWarningBox}>
                   <Info size={16} color="#FF9800" />
                   <Text style={styles.offlineWarningText}>
                     These agents are offline and may not respond immediately
                   </Text>
                 </View>
-                
+
                 <View style={styles.agentOptions}>
                   {offlineAgents.map((agent) => (
                     <TouchableOpacity
@@ -376,7 +391,7 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
               </View>
             )}
 
-            {agents.length === 0 && (
+            {deliveryAgents.length === 0 && (
               <View style={styles.noAgentsContainer}>
                 <Text style={styles.noAgentsText}>No delivery agents found</Text>
               </View>
@@ -497,7 +512,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
   },
-  // Refresh button styles
   refreshButton: {
     flexDirection: 'row',
     alignItems: 'center',

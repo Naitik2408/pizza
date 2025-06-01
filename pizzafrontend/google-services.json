@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "155407699971",
+    "project_id": "pizza-abe9a",
+    "storage_bucket": "pizza-abe9a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:155407699971:android:e6adfd9dc057160578be36",
+        "android_client_info": {
+          "package_name": "com.naitik2408.boltexponativewind"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC_yxVcQ9MY_UhcjiNVqe4l5hFdsr6atJk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
