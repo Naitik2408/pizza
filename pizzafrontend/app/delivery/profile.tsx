@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Switch, Platform } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Switch, Platform } from 'react-native';
 import { Settings, Bell, LogOut, Check, X, AlertTriangle, Truck, FileText, User as UserIcon, Wifi, WifiOff } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { logout } from '../../redux/slices/authSlice';
 import { API_URL } from '@/config';
+import { io, Socket } from 'socket.io-client';
 
 // Define the delivery partner details interface
 interface DeliveryDetails {
@@ -16,10 +17,44 @@ interface DeliveryDetails {
   isOnline?: boolean;
 }
 
+// Function to generate initials from name
+const getInitials = (name: string): string => {
+  if (!name) return 'DA'; // Delivery Agent default
+
+  const words = name.trim().split(' ');
+  if (words.length === 1) return words[0].substring(0, 2).toUpperCase();
+
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+};
+
+// Function to generate a consistent color based on name
+const generateColorFromName = (name: string): string => {
+  if (!name) return '#FF6B00'; // Default color
+
+  // Simple hash function for name to generate consistent colors
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  // Generate vibrant colors
+  const colorPalette = [
+    '#FF6B00', '#4F46E5', '#10B981', '#F59E0B', '#EC4899',
+    '#8B5CF6', '#06B6D4', '#F43F5E', '#84CC16', '#6366F1'
+  ];
+
+  const index = Math.abs(hash % colorPalette.length);
+  return colorPalette[index];
+};
+
 export default function DeliveryProfile() {
   const router = useRouter();
   const dispatch = useDispatch();
-  const { name, email, token } = useSelector((state: RootState) => state.auth);
+  const { name, email, token, userId } = useSelector((state: RootState) => state.auth);
+
+  // Generate initials and background color based on name
+  const initials = useMemo(() => getInitials(name || ''), [name]);
+  const avatarColor = useMemo(() => generateColorFromName(name || ''), [name]);
 
   // State for delivery partner details
   const [deliveryDetails, setDeliveryDetails] = useState<DeliveryDetails | null>(null);
@@ -27,6 +62,38 @@ export default function DeliveryProfile() {
   const [error, setError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [socket, setSocket] = useState<Socket | null>(null);
+
+  // Setup socket connection for real-time updates
+  useEffect(() => {
+    if (!token) return;
+    
+    console.log("Setting up socket connection");
+    
+    const newSocket = io(API_URL, {
+      transports: ['websocket'],
+      auth: { token }
+    });
+    
+    setSocket(newSocket);
+    
+    newSocket.on('connect', () => {
+      console.log('Socket connected:', newSocket.id);
+    });
+    
+    newSocket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+    });
+    
+    // Clean up on unmount
+    return () => {
+      if (newSocket) {
+        newSocket.disconnect();
+      }
+      setSocket(null);
+    };
+  }, [token]);
 
   // Fetch delivery partner status on component mount
   useEffect(() => {
@@ -105,6 +172,23 @@ export default function DeliveryProfile() {
         });
       }
 
+      // Emit status update via socket for real-time reflection in admin panel
+      if (socket && userId) {
+        socket.emit('delivery_status_change', {
+          _id: userId,
+          name: name,
+          isOnline: newStatus,
+          lastActiveTime: new Date().toISOString(),
+          vehicleType: deliveryDetails?.vehicleType
+        });
+        
+        console.log('Emitted status change via socket:', {
+          _id: userId,
+          name: name,
+          isOnline: newStatus
+        });
+      }
+
       // Show a toast or notification
       Alert.alert(
         'Status Updated',
@@ -127,9 +211,10 @@ export default function DeliveryProfile() {
 
   const handleLogout = async () => {
     try {
+      setLoggingOut(true);
+      
       // If user is online, set them to offline first
       if (isOnline) {
-        setUpdatingStatus(true);
         try {
           // Call the toggle endpoint to set offline
           await fetch(`${API_URL}/api/users/delivery/status/toggle`, {
@@ -143,13 +228,22 @@ export default function DeliveryProfile() {
 
           // Update local state
           setIsOnline(false);
+          
+          // Send offline status to socket
+          if (socket && userId) {
+            socket.emit('delivery_status_change', {
+              _id: userId,
+              name: name,
+              isOnline: false,
+              lastActiveTime: new Date().toISOString(),
+              vehicleType: deliveryDetails?.vehicleType
+            });
+          }
 
           console.log('Set offline before logout');
         } catch (err) {
           console.error('Failed to set offline before logout:', err);
           // Continue with logout even if setting offline fails
-        } finally {
-          setUpdatingStatus(false);
         }
       }
 
@@ -168,10 +262,12 @@ export default function DeliveryProfile() {
       } else {
         console.error('Logout failed');
         Alert.alert('Logout Failed', 'Unable to log out. Please try again.');
+        setLoggingOut(false);
       }
     } catch (error) {
       console.error('Logout error:', error);
       Alert.alert('Error', 'Connection error. Please check your internet connection.');
+      setLoggingOut(false);
     }
   };
 
@@ -216,15 +312,18 @@ export default function DeliveryProfile() {
       <View style={styles.header}>
         <Text style={styles.title}>Delivery Profile</Text>
         <View style={styles.profile}>
-          <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=400&q=80' }}
-            style={styles.avatar}
-          />
-          <Text style={styles.name}>{name || 'Delivery Agent'}</Text>
-          <Text style={styles.email}>{email || 'delivery@example.com'}</Text>
+          {/* Name-based avatar with initials */}
+          <View style={[styles.avatarContainer, { backgroundColor: avatarColor }]}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </View>
+          
+          <View style={styles.profileInfo}>
+            <Text style={styles.name}>{name || 'Delivery Agent'}</Text>
+            <Text style={styles.email}>{email || 'delivery@example.com'}</Text>
 
-          {/* Status Badge */}
-          {!loading && deliveryDetails && renderStatusBadge()}
+            {/* Status Badge */}
+            {!loading && deliveryDetails && renderStatusBadge()}
+          </View>
         </View>
       </View>
 
@@ -269,15 +368,19 @@ export default function DeliveryProfile() {
                       : 'You will not receive new delivery orders'}
                   </Text>
                 </View>
-                <Switch
-                  value={isOnline}
-                  onValueChange={toggleOnlineStatus}
-                  disabled={updatingStatus || deliveryDetails.status !== 'approved'}
-                  trackColor={{ false: '#D1D5DB', true: '#10B98150' }}
-                  thumbColor={isOnline ? '#10B981' : '#9CA3AF'}
-                  ios_backgroundColor="#D1D5DB"
-                  style={Platform.OS === 'ios' ? styles.iosSwitch : {}}
-                />
+                {updatingStatus ? (
+                  <ActivityIndicator size="small" color="#FF6B00" />
+                ) : (
+                  <Switch
+                    value={isOnline}
+                    onValueChange={toggleOnlineStatus}
+                    disabled={updatingStatus || deliveryDetails.status !== 'approved'}
+                    trackColor={{ false: '#D1D5DB', true: '#10B98150' }}
+                    thumbColor={isOnline ? '#10B981' : '#9CA3AF'}
+                    ios_backgroundColor="#D1D5DB"
+                    style={Platform.OS === 'ios' ? styles.iosSwitch : {}}
+                  />
+                )}
               </View>
             </View>
           )}
@@ -324,44 +427,19 @@ export default function DeliveryProfile() {
             </View>
           )}
 
-          {/* Account Settings Section */}
-          {/* <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account</Text>
-
-            <TouchableOpacity style={styles.menuItem}>
-              <View style={[styles.iconContainer, { backgroundColor: '#FF6B0020' }]}>
-                <UserIcon size={20} color="#FF6B00" />
-              </View>
-              <View style={styles.menuItemContent}>
-                <Text style={styles.menuItemText}>Personal Information</Text>
-                <Text style={styles.menuItemDescription}>Update your details</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.menuItem}>
-              <View style={[styles.iconContainer, { backgroundColor: '#F59E0B20' }]}>
-                <Bell size={20} color="#F59E0B" />
-              </View>
-              <View style={styles.menuItemContent}>
-                <Text style={styles.menuItemText}>Notifications</Text>
-                <Text style={styles.menuItemDescription}>Customize alerts</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.menuItem}>
-              <View style={[styles.iconContainer, { backgroundColor: '#3B82F620' }]}>
-                <Settings size={20} color="#3B82F6" />
-              </View>
-              <View style={styles.menuItemContent}>
-                <Text style={styles.menuItemText}>Account Settings</Text>
-                <Text style={styles.menuItemDescription}>Privacy and security</Text>
-              </View>
-            </TouchableOpacity>
-          </View> */}
-
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <LogOut size={20} color="#FF4B4B" />
-            <Text style={styles.logoutText}>Log Out</Text>
+          <TouchableOpacity 
+            style={styles.logoutButton} 
+            onPress={handleLogout}
+            disabled={loggingOut}
+          >
+            {loggingOut ? (
+              <ActivityIndicator size="small" color="#FF4B4B" />
+            ) : (
+              <>
+                <LogOut size={20} color="#FF4B4B" />
+                <Text style={styles.logoutText}>Log Out</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       )}
@@ -387,13 +465,27 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   profile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  profileInfo: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  avatarContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 16,
+  avatarText: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: 'white',
   },
   name: {
     fontSize: 20,
@@ -412,6 +504,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 40,
+    alignSelf: 'flex-start',
     marginTop: 8,
   },
   statusText: {

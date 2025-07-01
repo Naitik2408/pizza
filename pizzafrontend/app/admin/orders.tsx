@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,18 +12,22 @@ import {
   Platform,
   RefreshControl,
   Alert,
-  Modal
+  Modal,
+  Animated as RNAnimated
 } from 'react-native';
-import { Filter, Search, X, ShoppingBag, AlertCircle, ChevronDown } from 'lucide-react-native';
+import { Filter, Search, X, ShoppingBag, AlertCircle, ChevronDown, Package, Bell } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/redux/store';
 import { API_URL } from '@/config';
+import { io } from 'socket.io-client';
+import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
-  withTiming,
   withSequence,
+  withTiming,
+  withDelay,
   cancelAnimation,
   Easing
 } from 'react-native-reanimated';
@@ -41,6 +45,28 @@ export interface AddOnOption {
   price: number;
 }
 
+interface NewOrderEventData {
+  _id: string;
+  orderNumber?: string;
+  id?: string;
+  customer?: string;
+  customerName?: string;
+  status?: string;
+  deliveryAgent?: string;
+  deliveryAgentName?: string;
+  createdAt: string;
+  date?: string;
+  time?: string;
+  amount: number;
+  items?: any[];
+  address?: string;
+  deliveryAddress?: string;
+  customerPhone?: string;
+  notes?: string;
+  paymentMethod?: string;
+  paymentStatus?: string;
+}
+
 interface FilterModalProps {
   visible: boolean;
   filters: OrderFilters;
@@ -51,6 +77,18 @@ interface FilterModalProps {
   onReset: () => void;
   onFilterChange: (filterType: string, value: string) => void;
   getStatusColor: (status: string) => string;
+}
+
+interface OrderUpdateEventData {
+  _id: string;
+  status?: string;
+  paymentStatus?: string;
+  deliveryAgentName?: string;
+  statusUpdates?: Array<{
+    status: string;
+    time: string;
+    note: string;
+  }>;
 }
 
 interface OrderFilters {
@@ -104,6 +142,18 @@ export interface Order {
     note: string;
   }>;
   totalItemsCount?: number;
+}
+
+interface DeliveryAssignmentEventData {
+  _id: string;
+  deliveryAgentName?: string;
+}
+
+// Define a proper interface for the delivery status update data
+interface DeliveryStatusUpdateData {
+  _id: string;
+  isOnline?: boolean;
+  lastActiveTime?: string;
 }
 
 interface DeliveryAgent {
@@ -271,6 +321,16 @@ const AdminOrders = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
 
+  // Socket.io state
+  const [socket, setSocket] = useState<any>(null);
+  const [notificationVisible, setNotificationVisible] = useState(false);
+  const [newOrderInfo, setNewOrderInfo] = useState<{
+    orderId: string;
+    orderNumber: string;
+    customerName: string;
+    amount: number;
+  } | null>(null);
+
   const [filters, setFilters] = useState<OrderFilters>({
     date: '',
     status: '',
@@ -286,11 +346,274 @@ const AdminOrders = () => {
 
   const { token, role } = useSelector((state: RootState) => state.auth);
 
+  // Animation refs
+  const [notificationAnim] = useState(() => new RNAnimated.Value(-100));
+  const [pulseAnim] = useState(() => new RNAnimated.Value(1));
+  const notificationTimeoutRef = useRef<number | null>(null);
+
+  // Socket setup for real-time updates
+  useEffect(() => {
+    if (!token) return;
+
+    // Create socket connection
+    const newSocket = io(API_URL, {
+      transports: ['websocket'],
+      auth: { token },
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
+
+    setSocket(newSocket);
+
+    // Socket connection events
+    newSocket.on('connect', () => {
+      console.log('Orders page socket connected with ID:', newSocket.id);
+
+      // Join admin room for broadcasts
+      newSocket.emit('join', {
+        userId: 'admin',
+        role: 'admin'
+      });
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+    });
+
+    // Clean up on unmount
+    return () => {
+      if (newSocket) {
+        console.log('Disconnecting orders page socket');
+        newSocket.disconnect();
+      }
+
+      // Clear any pending notification timeouts
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+      }
+    };
+  }, [token]);
+
+  // Handle real-time socket events
+  useEffect(() => {
+    if (!socket) return;
+
+    // Handle new order event
+    const handleNewOrder = (data: NewOrderEventData) => {
+      console.log("New order received in admin orders page:", data);
+
+      // Trigger haptic feedback for new order
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Format the incoming order to match our Order interface
+      const newOrder: Order = {
+        id: data.orderNumber || data.id || String(data._id).slice(-6),
+        _id: data._id,
+        customer: data.customerName || data.customer || 'New customer',
+        status: data.status || 'Pending',
+        deliveryAgent: data.deliveryAgentName || data.deliveryAgent || 'Unassigned',
+        date: data.date || new Date(data.createdAt).toLocaleDateString(),
+        time: data.time || new Date(data.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        amount: data.amount || 0,
+        items: Array.isArray(data.items) ? data.items : [],
+        address: data.address || data.deliveryAddress || '',
+        customerPhone: data.customerPhone || '',
+        notes: data.notes || '',
+        paymentMethod: data.paymentMethod || 'Online',
+        paymentStatus: data.paymentStatus || 'Pending'
+      };
+
+      // Add the new order to the state (at the beginning)
+      setOrders(prevOrders => {
+        // Check if order already exists to prevent duplicates
+        const exists = prevOrders.some(order => order._id === newOrder._id);
+        if (exists) return prevOrders;
+
+        // Add new order at the top
+        return [newOrder, ...prevOrders];
+      });
+
+      // Update total count
+      setTotalOrders(prevTotal => prevTotal + 1);
+
+      // Show notification
+      setNewOrderInfo({
+        orderId: data._id,
+        orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
+        customerName: data.customerName || data.customer || 'New customer',
+        amount: data.amount || 0
+      });
+
+      showNotification();
+
+      // Pulse animation for visual feedback
+      animatePulse();
+    };
+
+    // Handle order update events (status changes, etc.)
+    const handleOrderUpdate = (data: OrderUpdateEventData) => {
+      console.log("Order update received:", data);
+
+      // Update the specific order in our state
+      setOrders(prevOrders => prevOrders.map(order => {
+        if (order._id === data._id) {
+          return {
+            ...order,
+            status: data.status || order.status,
+            paymentStatus: data.paymentStatus || order.paymentStatus,
+            deliveryAgent: data.deliveryAgentName || order.deliveryAgent
+          };
+        }
+        return order;
+      }));
+
+      // If the currently selected order is being updated, also update it
+      if (selectedOrder && selectedOrder._id === data._id) {
+        setSelectedOrder(prevOrder => {
+          if (!prevOrder) return null;
+
+          return {
+            ...prevOrder,
+            status: data.status || prevOrder.status,
+            paymentStatus: data.paymentStatus || prevOrder.paymentStatus,
+            deliveryAgent: data.deliveryAgentName || prevOrder.deliveryAgent,
+            statusUpdates: data.statusUpdates || prevOrder.statusUpdates
+          };
+        });
+      }
+    };
+
+    // Handle delivery agent assignment
+    const handleDeliveryAssignment = (data: DeliveryAssignmentEventData) => {
+      console.log("Delivery assignment update received:", data);
+
+      // Update the specific order with new delivery agent info
+      setOrders(prevOrders => prevOrders.map(order => {
+        if (order._id === data._id) {
+          return {
+            ...order,
+            deliveryAgent: data.deliveryAgentName || 'Unassigned'
+          };
+        }
+        return order;
+      }));
+    };
+
+    const handleDeliveryStatusUpdate = (data: DeliveryStatusUpdateData) => {
+      console.log('Delivery agent status update received:', data);
+
+      // Update the specific agent's online status in our state
+      setDeliveryAgents(prevAgents => {
+        return prevAgents.map(agent => {
+          if (agent._id === data._id) {
+            return {
+              ...agent,
+              deliveryDetails: {
+                ...agent.deliveryDetails,
+                isOnline: data.isOnline,
+                lastActiveTime: data.lastActiveTime || agent.deliveryDetails?.lastActiveTime
+              }
+            };
+          }
+          return agent;
+        });
+      });
+    };
+
+    // Register event handlers
+    socket.on('new_order_placed', handleNewOrder);
+    socket.on('order_update', handleOrderUpdate);
+    socket.on('delivery_assignment_update', handleDeliveryAssignment);
+
+    socket.on('delivery_status_update', handleDeliveryStatusUpdate);
+    socket.on('delivery_status_change', handleDeliveryStatusUpdate);
+
+
+    // Debug listener
+    socket.onAny((event: string, ...args: any[]) => {
+      console.log(`Socket event received in orders page: ${event}`, args);
+    });
+
+    // Clean up listeners on unmount
+    return () => {
+      socket.off('new_order_placed', handleNewOrder);
+      socket.off('order_update', handleOrderUpdate);
+      socket.off('delivery_assignment_update', handleDeliveryAssignment);
+      socket.off('delivery_status_update', handleDeliveryStatusUpdate);
+      socket.off('delivery_status_change', handleDeliveryStatusUpdate);
+      socket.offAny();
+    };
+  }, [socket, selectedOrder]);
+
+  // Function to show notification
+  const showNotification = () => {
+    setNotificationVisible(true);
+
+    // Clear any existing timeout
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+
+    // Reset animation value to starting position
+    notificationAnim.setValue(-100);
+
+    // Create animation sequence
+    RNAnimated.sequence([
+      RNAnimated.timing(notificationAnim, {
+        toValue: 10,
+        duration: 500,
+        useNativeDriver: true
+      }),
+      RNAnimated.delay(5000),
+      RNAnimated.timing(notificationAnim, {
+        toValue: -100,
+        duration: 500,
+        useNativeDriver: true
+      })
+    ]).start(() => {
+      setNotificationVisible(false);
+    });
+
+    // Auto-hide after 5.5 seconds
+    notificationTimeoutRef.current = setTimeout(() => {
+      setNotificationVisible(false);
+    }, 5500);
+  };
+
+  // Function to animate pulse effect
+  const animatePulse = () => {
+    // Reset animation value
+    pulseAnim.setValue(1);
+
+    RNAnimated.sequence([
+      RNAnimated.timing(pulseAnim, {
+        toValue: 1.1,
+        duration: 300,
+        useNativeDriver: true
+      }),
+      RNAnimated.timing(pulseAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true
+      }),
+      RNAnimated.timing(pulseAnim, {
+        toValue: 1.1,
+        duration: 300,
+        useNativeDriver: true
+      }),
+      RNAnimated.timing(pulseAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true
+      })
+    ]).start();
+  };
+
   // Function to fetch detailed order information
   const fetchOrderDetails = async (orderId: string) => {
     try {
       if (!token) return;
-      
+
       setLoadingOrderDetails(true);
       setSelectedOrder(null);
 
@@ -535,11 +858,6 @@ const AdminOrders = () => {
 
       // Close modal after assignment
       setAssignAgentModalVisible(false);
-
-      // Fetch orders again to ensure consistency with backend
-      setTimeout(() => {
-        fetchOrders(currentPage);
-      }, 1000);
     } catch (err) {
       console.error('Error assigning delivery agent:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -756,6 +1074,18 @@ const AdminOrders = () => {
     </View>
   );
 
+  // Function to handle clicking on notification - go to order details
+  const handleNotificationPress = () => {
+    if (newOrderInfo && newOrderInfo.orderId) {
+      fetchOrderDetails(newOrderInfo.orderId);
+      // Hide notification
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+      }
+      setNotificationVisible(false);
+    }
+  };
+
   useEffect(() => {
     fetchOrders(1);
   }, [fetchOrders]);
@@ -771,8 +1101,67 @@ const AdminOrders = () => {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [updatePaymentModalVisible, setUpdatePaymentModalVisible] = useState(false);
 
+  // Format currency helper
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* New Order Notification */}
+      {notificationVisible && newOrderInfo && (
+        <RNAnimated.View
+          style={[
+            styles.notificationContainer,
+            {
+              transform: [{ translateY: notificationAnim }] // Using notificationAnim instead of notificationAnimRef
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.notificationContent}
+            onPress={handleNotificationPress}
+            activeOpacity={0.9}
+          >
+            <View style={styles.notificationIcon}>
+              <Bell size={24} color="#FFFFFF" />
+            </View>
+            <View style={styles.notificationTextContainer}>
+              <Text style={styles.notificationTitle}>New Order Received!</Text>
+              <Text style={styles.notificationDescription}>
+                {newOrderInfo.customerName} placed order {newOrderInfo.orderNumber}
+              </Text>
+              <Text style={styles.notificationAmount}>
+                {formatCurrency(newOrderInfo.amount)}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.notificationClose}
+            onPress={() => {
+              if (notificationTimeoutRef.current) {
+                clearTimeout(notificationTimeoutRef.current);
+              }
+
+              // Animate out and then hide
+              RNAnimated.timing(notificationAnim, { // Using notificationAnim instead of notificationAnimRef
+                toValue: -100,
+                duration: 300,
+                useNativeDriver: true
+              }).start(() => {
+                setNotificationVisible(false);
+              });
+            }}
+          >
+            <X size={16} color="#FFFFFF" />
+          </TouchableOpacity>
+        </RNAnimated.View>
+      )}
+
       {loading && !refreshing ? (
         <>
           <HeaderSkeleton />
@@ -847,23 +1236,29 @@ const AdminOrders = () => {
           {/* Orders list with infinite scroll */}
           <FlatList
             data={orders}
-            renderItem={({ item }) => (
-              <OrderCard
-                order={item}
-                onPress={() => {
-                  // Use fetchOrderDetails to get detailed order info
-                  fetchOrderDetails(item._id);
-                }}
-                onUpdateStatus={() => {
-                  setSelectedOrder(item);
-                  setUpdateStatusModalVisible(true);
-                }}
-                onAssignAgent={() => {
-                  setSelectedOrder(item);
-                  setAssignAgentModalVisible(true);
-                }}
-                getStatusColor={getStatusColor}
-              />
+            renderItem={({ item, index }) => (
+              <RNAnimated.View // Changed from Animated.View to RNAnimated.View
+                style={[
+                  { transform: [{ scale: index === 0 && notificationVisible ? pulseAnim : 1 }] } // Using pulseAnim instead of pulseAnimRef
+                ]}
+              >
+                <OrderCard
+                  order={item}
+                  onPress={() => {
+                    // Use fetchOrderDetails to get detailed order info
+                    fetchOrderDetails(item._id);
+                  }}
+                  onUpdateStatus={() => {
+                    setSelectedOrder(item);
+                    setUpdateStatusModalVisible(true);
+                  }}
+                  onAssignAgent={() => {
+                    setSelectedOrder(item);
+                    setAssignAgentModalVisible(true);
+                  }}
+                  getStatusColor={getStatusColor}
+                />
+              </RNAnimated.View>
             )}
             keyExtractor={(item) => item._id}
             contentContainerStyle={styles.ordersList}
@@ -890,7 +1285,7 @@ const AdminOrders = () => {
               </View>
             )}
           />
-          
+
           {/* Pagination info */}
           {totalPages > 1 && (
             <View style={styles.paginationInfo}>
@@ -956,7 +1351,7 @@ const AdminOrders = () => {
         deliveryAgents={deliveryAgents}
         statusOptions={statusOptions}
         onClose={() => setFilterModalVisible(false)}
-        onApply={() => applyFilters(filters)} 
+        onApply={() => applyFilters(filters)}
         onReset={resetFilters}
         onFilterChange={(filterType, value) => setFilters(prev => ({ ...prev, [filterType]: value }))}
         getStatusColor={getStatusColor}
@@ -1279,6 +1674,69 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#EEEEEE',
+  },
+  // New notification styles
+  notificationContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 10,
+    left: 16,
+    right: 16,
+    backgroundColor: '#FF6B00',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 10,
+    zIndex: 1000,
+  },
+  notificationContent: {
+    flex: 1,
+    flexDirection: 'row',
+    padding: 16,
+  },
+  notificationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  notificationTextContainer: {
+    flex: 1,
+  },
+  notificationTitle: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  notificationDescription: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    opacity: 0.9,
+    marginBottom: 2,
+  },
+  notificationAmount: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  notificationClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
   }
 });
 

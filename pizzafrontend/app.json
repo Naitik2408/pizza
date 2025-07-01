@@ -9,7 +9,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.naitik2408.boltexponativewind"
     },
     "web": {
       "bundler": "metro",
@@ -17,7 +18,26 @@
       "favicon": "./assets/images/logo.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/logo.png",
+          "color": "#FF6B00",
+          "sounds": [
+            "./assets/notification_sound.wav"
+          ],
+          "androidMode": "default",
+          "androidCollapsedTitle": "Friends Pizza Hut",
+          "iosDisplayInForeground": true
+        }
+      ],
+      [
+        "./plugins/withRazorpay.js"
+      ],
+      [
+        "./plugins/withFirebaseMessaging.js"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -31,7 +51,25 @@
       }
     },
     "android": {
-      "package": "com.naitik2408.boltexponativewind"
-    }
+      "package": "com.naitik2408.boltexponativewind",
+      "useNextNotificationsApi": true,
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "NOTIFICATIONS",
+        "ACCESS_NOTIFICATION_POLICY",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": "1.0.0",
+    "assetBundlePatterns": [
+      "**/*"
+    ]
   }
 }

@@ -21,6 +21,7 @@ import { useRouter } from 'expo-router';
 import { Lock, Mail, ChevronRight, Eye, EyeOff, AlertCircle } from 'lucide-react-native';
 import { API_URL } from '@/config';
 import { LinearGradient } from 'expo-linear-gradient';
+import { registerDeviceForNotifications } from '@/utils/notifications';
 
 const { width, height } = Dimensions.get('window');
 
@@ -122,14 +123,27 @@ export default function LoginScreen() {
       const data = await response.json();
 
       if (response.ok) {
+        // Store user data in Redux
         dispatch(
           login({
             token: data.token,
             role: data.role,
             name: data.name,
             email: data.email,
+            userId: data._id || data.userId || '', // Add this line to include userId
           })
         );
+
+        // Register for push notifications if admin or delivery role
+        if (data.role === 'admin' || data.role === 'delivery') {
+          registerDeviceForNotifications(data.token)
+            .then(success => {
+              console.log('Notification registration:', success ? 'successful' : 'failed');
+            })
+            .catch(err => {
+              console.error('Error during notification registration:', err);
+            });
+        }
 
         // Redirect based on role
         if (data.role === 'admin') {

@@ -12,16 +12,30 @@ import {
   RefreshControl,
   Clipboard,
   Platform,
-  PermissionsAndroid
+  PermissionsAndroid,
+  Animated
 } from 'react-native';
-import { MapPin, Phone, MessageSquare, Navigation, Clock, Check, Package, Truck, ArrowLeft, CreditCard } from 'lucide-react-native';
+import {
+  MapPin,
+  Phone,
+  MessageSquare,
+  Navigation,
+  Clock,
+  Check,
+  Package,
+  Truck,
+  ArrowLeft,
+  CreditCard,
+  RefreshCw,
+  Bell
+} from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { API_URL } from '@/config';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Define interfaces based on data received from deliveryController.js
+// Define interfaces based on data received from orderController.js
 interface OrderItem {
   name: string;
   quantity: number;
@@ -31,6 +45,13 @@ interface OrderItem {
 interface Customer {
   name: string;
   contact: string;
+}
+
+// Define the props interface for EmptyOrdersView
+interface EmptyOrdersViewProps {
+  onRefresh: () => void;
+  lastRefresh: number;
+  refreshing: boolean;
 }
 
 interface DeliveryAddress {
@@ -51,6 +72,11 @@ interface Order {
   customer: Customer;
   items: OrderItem[];
   totalPrice: number;
+  amount?: number; // Total amount field from backend
+  subtotal?: number;
+  subTotal?: number; // Handle both naming conventions
+  tax?: number;
+  deliveryFee?: number;
   deliveryAddress: DeliveryAddress;
   pickupLocation: PickupLocation;
   estimatedDeliveryTime: string;
@@ -60,6 +86,172 @@ interface Order {
   distance: string;
   date: string;
 }
+
+// Improved skeleton loader component with animation
+const OrderSkeleton = () => {
+  const [fadeAnim] = useState(new Animated.Value(0.3));
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [fadeAnim]);
+
+  const skeletonStyle = {
+    opacity: fadeAnim,
+  };
+
+  return (
+    <Animated.View style={[styles.orderCard, skeletonStyle]}>
+      <View style={styles.orderHeader}>
+        <View>
+          <View style={styles.skeletonText} />
+          <View style={styles.skeletonBadge} />
+        </View>
+        <View style={styles.skeletonTime} />
+      </View>
+      <View style={styles.separator} />
+      <View style={styles.customerSection}>
+        <View style={styles.skeletonSectionTitle} />
+        <View style={styles.skeletonName} />
+        <View style={styles.contactButtons}>
+          <View style={styles.skeletonButton} />
+          <View style={[styles.skeletonButton, { marginLeft: 12 }]} />
+        </View>
+      </View>
+      <View style={styles.locationInfo}>
+        <View style={styles.skeletonMapIcon} />
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <View style={styles.skeletonAddressLabel} />
+          <View style={styles.skeletonAddress} />
+        </View>
+      </View>
+      <View style={styles.skeletonMap} />
+      <View style={styles.orderDetails}>
+        <View style={styles.skeletonSectionTitle} />
+        <View style={styles.skeletonOrderItem} />
+        <View style={styles.skeletonOrderItem} />
+        <View style={styles.skeletonTotal} />
+      </View>
+      <View style={styles.skeletonActionButton} />
+    </Animated.View>
+  );
+};
+
+// Component for rendering the empty orders view
+const EmptyOrdersView = ({ onRefresh, lastRefresh, refreshing }: EmptyOrdersViewProps) => {
+  // Animation for the pulsing button
+  const [pulseAnim] = useState(new Animated.Value(1));
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.1,
+          duration: 1000,
+          useNativeDriver: true
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true
+        })
+      ])
+    ).start();
+  }, []);
+
+  return (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyImageContainer}>
+        <Image
+          source={{ uri: 'https://img.freepik.com/free-vector/way-concept-illustration_114360-1191.jpg?t=st=1748753832~exp=1748757432~hmac=3784bedcd9f3239dd53bbdd5ec8b26c59ce7194cbf147dec88e601d8ccb7318b&w=1380' }}
+          style={styles.emptyImage}
+        />
+        {/* <View style={styles.emptyBadge}>
+          <Clock size={18} color="#FF6B00" />
+          <Text style={styles.emptyBadgeText}>Standby</Text>
+        </View> */}
+      </View>
+
+      <View style={styles.emptyContentContainer}>
+        {/* <Text style={styles.emptyTitle}>No Orders Yet</Text>
+        <Text style={styles.emptyDescription}>
+          You're all caught up! New delivery assignments will appear here when they're ready.
+        </Text> */}
+
+        <View style={styles.notificationContainer}>
+          <Bell size={20} color="#FF6B00" />
+          <Text style={styles.notificationText}>
+            You'll receive notifications when new orders are assigned to you.
+          </Text>
+        </View>
+
+        <View style={styles.emptyTipsContainer}>
+          <Text style={styles.emptyTipsTitle}>While You Wait:</Text>
+          <View style={styles.emptyTipGrid}>
+            <View style={styles.emptyTipBox}>
+              <View style={styles.tipIconCircle}>
+                <Truck size={18} color="#FF6B00" />
+              </View>
+              <Text style={styles.emptyTipText}>Prepare your vehicle</Text>
+            </View>
+
+            <View style={styles.emptyTipBox}>
+              <View style={styles.tipIconCircle}>
+                <Phone size={18} color="#FF6B00" />
+              </View>
+              <Text style={styles.emptyTipText}>Ensure phone is charged</Text>
+            </View>
+
+            <View style={styles.emptyTipBox}>
+              <View style={styles.tipIconCircle}>
+                <MapPin size={18} color="#FF6B00" />
+              </View>
+              <Text style={styles.emptyTipText}>Stay in delivery zone</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <TouchableOpacity
+            style={styles.pulsingRefreshButton}
+            onPress={onRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <RefreshCw size={18} color="#FFFFFF" />
+                <Text style={styles.refreshButtonText}>Check for New Orders</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </Animated.View> */}
+
+        <Text style={styles.lastRefreshText}>
+          Last checked: {new Date(lastRefresh).toLocaleTimeString()}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
+// Function to calculate subtotal from items
+const calculateSubtotal = (items: OrderItem[] = []) => {
+  return items.reduce((total, item) => total + (item.price * item.quantity), 0);
+};
 
 const AssignedOrders = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -92,27 +284,62 @@ const AssignedOrders = () => {
         }
       });
 
+      // Check if response has no content
+      if (response.status === 204) {
+        console.log('No orders found');
+        setOrders([]);
+        setLastRefresh(Date.now());
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // Check for other error responses
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error('Error response:', errorData);
         throw new Error(errorData.message || 'Failed to fetch orders');
       }
 
-      const data = await response.json();
-      console.log(`Fetched ${data.length} assigned orders`);
+      // Try to parse the response and handle unexpected data formats
+      const data = await response.json().catch(err => {
+        console.error('Error parsing JSON response:', err);
+        throw new Error('Invalid server response');
+      });
 
-      // Log the data structure to help debug
-      if (data.length > 0) {
-        console.log('Sample order structure:', data[0]);
-      }
+      // Handle different response formats (array or object with orders property)
+      const ordersArray = Array.isArray(data) ? data : data.orders || [];
+      console.log(`Fetched ${ordersArray.length} assigned orders`);
 
-      setOrders(data);
+      // Validate order data before setting state
+      const validOrders = ordersArray
+        .filter((order: any) => order && order._id)
+        .map((order: any) => ({
+          ...order,
+          // Ensure required fields have default values
+          id: order.id || order._id || `temp-${Date.now()}`,
+          _id: order._id || `temp-${Date.now()}`,
+          customer: order.customer || { name: 'Customer', contact: 'N/A' },
+          items: Array.isArray(order.items) ? order.items : [],
+          totalPrice: order.totalPrice || order.amount || 0,
+          subtotal: order.subtotal || order.subTotal || 0,
+          tax: typeof order.tax === 'number' ? order.tax : 0,
+          deliveryFee: typeof order.deliveryFee === 'number' ? order.deliveryFee : 0,
+          deliveryAddress: order.deliveryAddress || { street: 'N/A', city: 'N/A', country: 'N/A' },
+          pickupLocation: order.pickupLocation || { name: 'Restaurant', address: 'Restaurant Address' },
+          status: order.status || 'Pending',
+          paymentMethod: order.paymentMethod || 'N/A',
+          paymentStatus: order.paymentStatus || 'N/A',
+          estimatedDeliveryTime: order.estimatedDeliveryTime || 'Processing'
+        }));
 
-      // Update last refresh time
+      setOrders(validOrders);
       setLastRefresh(Date.now());
     } catch (err) {
       console.error('Error fetching orders:', err);
       setError('Failed to load orders. Please try again.');
+      // Don't crash the app, set empty orders array as fallback
+      setOrders([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -133,8 +360,8 @@ const AssignedOrders = () => {
 
       // Check if this is a cash on delivery order and is being marked as delivered
       if (
-        orderToUpdate.paymentMethod === 'Cash on Delivery' && 
-        orderToUpdate.paymentStatus === 'Pending' && 
+        orderToUpdate.paymentMethod === 'Cash on Delivery' &&
+        orderToUpdate.paymentStatus === 'Pending' &&
         newStatus === 'Delivered'
       ) {
         // Show alert to collect payment first
@@ -143,8 +370,8 @@ const AssignedOrders = () => {
           'This order requires cash on delivery payment. Please collect payment before completing delivery.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Collect Payment', 
+            {
+              text: 'Collect Payment',
               onPress: () => {
                 // Navigate to QR scanner with the selected order
                 router.push({
@@ -208,52 +435,27 @@ const AssignedOrders = () => {
   }, [fetchOrders]);
 
   const callCustomer = async (phoneNumber: string) => {
-    console.log(`Attempting to call customer at: ${phoneNumber}`);
-
-    // Check if phone number is valid
-    if (!phoneNumber || phoneNumber.trim() === '') {
-      console.error('Invalid phone number');
-      Alert.alert("Error", "Invalid phone number");
-      return;
-    }
-
-    const phoneUrl = `tel:${phoneNumber.trim()}`;
-
     try {
-      // On Android, we need to request the CALL_PHONE permission
-      if (Platform.OS === 'android') {
-        try {
-          const granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.CALL_PHONE,
-            {
-              title: "Phone Call Permission",
-              message: "App needs access to make phone calls",
-              buttonNeutral: "Ask Me Later",
-              buttonNegative: "Cancel",
-              buttonPositive: "OK"
-            }
-          );
-
-          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-            console.log('Phone call permission denied');
-            // Still proceed to try, but it may fail
-          }
-        } catch (err) {
-          console.warn('Error requesting call permission:', err);
-        }
+      if (!phoneNumber) {
+        Alert.alert("Error", "No phone number available");
+        return;
       }
 
+      // Format phone number (remove spaces, etc.)
+      const formattedNumber = phoneNumber.replace(/\s/g, '');
+
+      // Create the phone URL
+      const phoneUrl = `tel:${formattedNumber}`;
+
+      // Check if device supports phone calls
       const supported = await Linking.canOpenURL(phoneUrl);
 
       if (supported) {
-        console.log(`Opening phone app with number: ${phoneNumber}`);
         await Linking.openURL(phoneUrl);
       } else {
-        console.log('Phone calls not supported on this device - showing alternative');
-
         Alert.alert(
-          "Call Customer",
-          `The number is: ${phoneNumber}`,
+          "Device Limitation",
+          "Your device doesn't support making calls. Would you like to copy the number?",
           [
             { text: "Cancel", style: "cancel" },
             {
@@ -262,36 +464,13 @@ const AssignedOrders = () => {
                 Clipboard.setString(phoneNumber);
                 Alert.alert("Success", "Phone number copied to clipboard");
               }
-            },
-            {
-              text: "Try Direct Call",
-              onPress: () => {
-                Linking.openURL(phoneUrl).catch(err => {
-                  console.error('Final attempt to call failed:', err);
-                  Alert.alert("Error", "Unable to initiate call. The device may not support calling.");
-                });
-              }
             }
           ]
         );
       }
     } catch (error) {
-      console.error('Error with phone call:', error);
-
-      Alert.alert(
-        "Contact Information",
-        `Customer phone: ${phoneNumber}`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Copy Number",
-            onPress: () => {
-              Clipboard.setString(phoneNumber);
-              Alert.alert("Success", "Phone number copied to clipboard");
-            }
-          }
-        ]
-      );
+      console.error('Error making phone call:', error);
+      Alert.alert("Error", "Failed to make call. Please try again.");
     }
   };
 
@@ -408,50 +587,33 @@ const AssignedOrders = () => {
     order.status !== 'Delivered' && order.status !== 'Cancelled'
   );
 
-  // Render loading state
-  if (loading && !refreshing && orders.length === 0) {
-    return (
-      <SafeAreaView style={[styles.container, styles.centerContent]} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <ArrowLeft size={24} color="#2d3436" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Assigned Orders</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3498db" />
-          <Text style={styles.loadingText}>Loading orders...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // Render error state
-  if (error && !refreshing && orders.length === 0) {
-    return (
-      <SafeAreaView style={[styles.container, styles.centerContent]} edges={['top', 'left', 'right']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <ArrowLeft size={24} color="#2d3436" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Assigned Orders</Text>
-        </View>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchOrders}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Render loading state with skeleton
+  const renderLoadingSkeletons = () => (
+    <>
+      <OrderSkeleton />
+      <OrderSkeleton />
+    </>
+  );
 
   const renderOrderItem = ({ item }: { item: Order }) => {
     // Check if this order needs payment collection
-    const needsPaymentCollection = 
-      item.status === 'Out for delivery' && 
-      item.paymentMethod === 'Cash on Delivery' && 
+    const needsPaymentCollection =
+      item.status === 'Out for delivery' &&
+      item.paymentMethod === 'Cash on Delivery' &&
       item.paymentStatus === 'Pending';
+
+    // Calculate/retrieve financial details with fallbacks
+    // First try direct fields, then calculate from available data
+    const subtotal = item.subtotal || item.subTotal || calculateSubtotal(item.items);
+
+    // Tax calculation with fallbacks
+    const tax = typeof item.tax === 'number' ? item.tax : 0;
+
+    // Delivery fee with fallbacks
+    const deliveryFee = typeof item.deliveryFee === 'number' ? item.deliveryFee : 0;
+
+    // Total amount
+    const totalAmount = item.totalPrice || item.amount || (subtotal + tax + deliveryFee);
 
     return (
       <View style={styles.orderCard}>
@@ -475,8 +637,8 @@ const AssignedOrders = () => {
         {item.paymentMethod === 'Cash on Delivery' && (
           <View style={styles.paymentBadge}>
             <CreditCard size={14} color={item.paymentStatus === 'Pending' ? '#FF6B00' : '#2ECC71'} />
-            <Text style={[styles.paymentBadgeText, { 
-              color: item.paymentStatus === 'Pending' ? '#FF6B00' : '#2ECC71' 
+            <Text style={[styles.paymentBadgeText, {
+              color: item.paymentStatus === 'Pending' ? '#FF6B00' : '#2ECC71'
             }]}>
               {item.paymentStatus === 'Pending' ? 'Payment Pending' : 'Payment Completed'}
             </Text>
@@ -499,29 +661,6 @@ const AssignedOrders = () => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.contactButton, { backgroundColor: '#27ae60' }]}
-              onPress={() => {
-                Alert.alert(
-                  "Customer Contact",
-                  `Phone: ${item.customer.contact}`,
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Copy Number",
-                      onPress: () => {
-                        Clipboard.setString(item.customer.contact);
-                        Alert.alert("Success", "Phone number copied to clipboard");
-                      }
-                    }
-                  ]
-                );
-              }}
-            >
-              <Phone size={16} color="#fff" />
-              <Text style={styles.contactButtonText}>Show #</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
               style={[styles.contactButton, { backgroundColor: '#9b59b6' }]}
               onPress={() => messageCustomer(item.customer.contact)}
             >
@@ -531,28 +670,17 @@ const AssignedOrders = () => {
           </View>
         </View>
 
-        <View style={styles.infoSection}>
-          <View style={styles.locationInfo}>
-            <MapPin size={16} color="#ff4757" />
-            <View style={styles.addressContainer}>
-              <Text style={styles.addressLabel}>Pickup</Text>
-              <Text style={styles.addressText}>{item.pickupLocation.name}</Text>
-              <Text style={styles.addressSubText}>{item.pickupLocation.address}</Text>
-            </View>
-          </View>
-
-          <View style={styles.locationInfo}>
-            <MapPin size={16} color="#2ed573" />
-            <View style={styles.addressContainer}>
-              <Text style={styles.addressLabel}>Delivery</Text>
-              <Text style={styles.addressText}>{item.deliveryAddress.street}</Text>
-              <Text style={styles.addressSubText}>
-                {item.deliveryAddress.city}, {item.deliveryAddress.country}
-              </Text>
-              {item.deliveryAddress.notes && (
-                <Text style={styles.addressNotes}>{item.deliveryAddress.notes}</Text>
-              )}
-            </View>
+        <View style={styles.locationInfo}>
+          <MapPin size={16} color="#2ed573" />
+          <View style={styles.addressContainer}>
+            <Text style={styles.addressLabel}>Delivery Address</Text>
+            <Text style={styles.addressText}>{item.deliveryAddress.street}</Text>
+            <Text style={styles.addressSubText}>
+              {item.deliveryAddress.city}, {item.deliveryAddress.country}
+            </Text>
+            {item.deliveryAddress.notes && (
+              <Text style={styles.addressNotes}>{item.deliveryAddress.notes}</Text>
+            )}
           </View>
         </View>
 
@@ -578,17 +706,34 @@ const AssignedOrders = () => {
           <Text style={styles.sectionTitle}>Order Details</Text>
           {item.items && item.items.map((orderItem, index) => (
             <View key={`${item.id}-item-${index}`} style={styles.orderItemRow}>
-              <Text style={styles.itemName}>{orderItem.quantity}x {orderItem.name}</Text>
+              <Text style={styles.itemName}>
+                {orderItem.quantity}x {orderItem.name}
+              </Text>
               <Text style={styles.itemPrice}>
-                ₹{typeof orderItem.price === 'number' ? orderItem.price.toFixed(2) : '0.00'}
+                ₹{orderItem.price} × {orderItem.quantity} = ₹{orderItem.price * orderItem.quantity}
               </Text>
             </View>
           ))}
+
+          {/* Always show these rows for complete information */}
+          <View style={styles.subtotalRow}>
+            <Text style={styles.subtotalLabel}>Subtotal</Text>
+            <Text style={styles.subtotalValue}>₹{subtotal.toFixed(2)}</Text>
+          </View>
+
+          <View style={styles.subtotalRow}>
+            <Text style={styles.subtotalLabel}>Tax</Text>
+            <Text style={styles.subtotalValue}>₹{tax.toFixed(2)}</Text>
+          </View>
+
+          <View style={styles.subtotalRow}>
+            <Text style={styles.subtotalLabel}>Delivery Fee</Text>
+            <Text style={styles.subtotalValue}>₹{deliveryFee.toFixed(2)}</Text>
+          </View>
+
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalPrice}>
-              ₹{typeof item.totalPrice === 'number' ? item.totalPrice.toFixed(2) : '0.00'}
-            </Text>
+            <Text style={styles.totalPrice}>₹{totalAmount.toFixed(2)}</Text>
           </View>
         </View>
 
@@ -609,25 +754,25 @@ const AssignedOrders = () => {
                 style={[styles.updateStatusButton, { backgroundColor: getStatusColor(getNextStatus(item.status)) }]}
                 onPress={() => {
                   setSelectedOrder(item);
-                  
+
                   // If next status would be 'Delivered' but payment is pending for COD, don't allow
-                  if (getNextStatus(item.status) === 'Delivered' && 
-                      item.paymentMethod === 'Cash on Delivery' && 
-                      item.paymentStatus === 'Pending') {
+                  if (getNextStatus(item.status) === 'Delivered' &&
+                    item.paymentMethod === 'Cash on Delivery' &&
+                    item.paymentStatus === 'Pending') {
                     Alert.alert(
                       'Payment Required',
                       'Please collect payment before completing the delivery.',
                       [
                         { text: 'Cancel', style: 'cancel' },
-                        { 
-                          text: 'Collect Payment', 
+                        {
+                          text: 'Collect Payment',
                           onPress: () => navigateToPaymentScreen(item)
                         }
                       ]
                     );
                     return;
                   }
-                  
+
                   updateOrderStatus(item.id, getNextStatus(item.status));
                 }}
               >
@@ -659,56 +804,16 @@ const AssignedOrders = () => {
         </View>
       </View>
 
-      {activeOrders.length === 0 && !loading ? (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyImageContainer}>
-            <Image
-              source={{ uri: 'https://img.freepik.com/premium-vector/food-delivery-boy-riding-scooter-fast-delivery-concept_138676-605.png' }}
-              style={styles.emptyImage}
-            />
-            <View style={styles.emptyBadge}>
-              <Clock size={18} color="#FF6B00" />
-              <Text style={styles.emptyBadgeText}>Standby</Text>
-            </View>
-          </View>
-
-          <Text style={styles.emptyTitle}>No Active Deliveries</Text>
-          <Text style={styles.emptyDescription}>
-            You're all caught up! New delivery assignments will appear here when they're ready.
-          </Text>
-
-          <View style={styles.emptyTipsContainer}>
-            <Text style={styles.emptyTipsTitle}>While You Wait:</Text>
-            <View style={styles.emptyTip}>
-              <Check size={16} color="#2ECC71" />
-              <Text style={styles.emptyTipText}>Make sure your vehicle is ready</Text>
-            </View>
-            <View style={styles.emptyTip}>
-              <Check size={16} color="#2ECC71" />
-              <Text style={styles.emptyTipText}>Check that your phone is charged</Text>
-            </View>
-            <View style={styles.emptyTip}>
-              <Check size={16} color="#2ECC71" />
-              <Text style={styles.emptyTipText}>Stay in the delivery zone area</Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.pulsingRefreshButton}
-            onPress={onRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.refreshButtonText}>Check for New Orders</Text>
-            )}
-          </TouchableOpacity>
-
-          <Text style={styles.lastRefreshText}>
-            Last checked: {new Date(lastRefresh).toLocaleTimeString()}
-          </Text>
+      {loading && !refreshing && orders.length === 0 ? (
+        <View style={styles.ordersList}>
+          {renderLoadingSkeletons()}
         </View>
+      ) : activeOrders.length === 0 && !loading ? (
+        <EmptyOrdersView
+          onRefresh={onRefresh}
+          lastRefresh={lastRefresh}
+          refreshing={refreshing}
+        />
       ) : (
         <FlatList
           data={activeOrders}
@@ -720,13 +825,24 @@ const AssignedOrders = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#3498db', '#2ecc71']}
-              tintColor="#3498db"
+              colors={['#FF6B00', '#2ecc71']}
+              tintColor="#FF6B00"
               title="Checking for new orders..."
               titleColor="#636e72"
             />
           }
         />
+      )}
+
+      {error && !refreshing && !loading && (
+        <View style={styles.errorOverlay}>
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={fetchOrders}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       )}
     </SafeAreaView>
   );
@@ -748,6 +864,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eaeaea',
+    zIndex: 10,
+    elevation: 2,
   },
   backButton: {
     marginRight: 16,
@@ -860,9 +978,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 6,
   },
-  infoSection: {
-    marginBottom: 16,
-  },
   locationInfo: {
     flexDirection: 'row',
     marginBottom: 12,
@@ -908,10 +1023,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  mapOverlay: {
-    opacity: 0.7,
-    position: 'absolute',
-  },
   navigateButton: {
     position: 'absolute',
     bottom: 12,
@@ -939,11 +1050,27 @@ const styles = StyleSheet.create({
   itemName: {
     fontSize: 14,
     color: '#2d3436',
+    flex: 1,
   },
   itemPrice: {
     fontSize: 14,
     color: '#2d3436',
     fontWeight: '500',
+    textAlign: 'right',
+  },
+  subtotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  subtotalLabel: {
+    fontSize: 14,
+    color: '#636e72',
+  },
+  subtotalValue: {
+    fontSize: 14,
+    color: '#636e72',
+    textAlign: 'right',
   },
   totalRow: {
     flexDirection: 'row',
@@ -985,49 +1112,60 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  errorOverlay: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
     alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#636e72',
   },
   errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    backgroundColor: 'rgba(231, 76, 60, 0.9)',
+    borderRadius: 10,
+    padding: 16,
+    width: '100%',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
   },
   errorText: {
+    color: '#fff',
     fontSize: 16,
-    color: '#e74c3c',
+    marginBottom: 12,
     textAlign: 'center',
-    marginBottom: 16,
   },
   retryButton: {
-    backgroundColor: '#3498db',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    backgroundColor: '#fff',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#fff',
-    fontSize: 16,
+    color: '#e74c3c',
+    fontSize: 14,
     fontWeight: '600',
   },
+  // Improved empty state styles
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  emptyContentContainer: {
     alignItems: 'center',
     padding: 24,
-    paddingBottom: 120, // Extra padding for bottom navigation
+    paddingTop: 0,
+    paddingBottom: 60,
+    width: '100%',
   },
   emptyImageContainer: {
     position: 'relative',
     marginBottom: 20,
+    marginTop: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
@@ -1035,8 +1173,8 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   emptyImage: {
-    width: 200, 
-    height: 200,
+    width: 220,
+    height: 220,
     resizeMode: 'contain',
   },
   emptyBadge: {
@@ -1074,6 +1212,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 22,
+    paddingHorizontal: 20,
+  },
+  notificationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF0E6',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+    width: '100%',
+    shadowColor: '#FF6B00',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 1,
+  },
+  notificationText: {
+    color: '#333',
+    fontSize: 14,
+    marginLeft: 10,
+    flex: 1,
   },
   emptyTipsContainer: {
     width: '100%',
@@ -1086,12 +1245,37 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 5,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
   emptyTipsTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#2d3436',
-    marginBottom: 12,
+    marginBottom: 16,
+  },
+  emptyTipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  emptyTipBox: {
+    width: '31%',
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tipIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF0E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   emptyTip: {
     flexDirection: 'row',
@@ -1099,9 +1283,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyTipText: {
-    marginLeft: 8,
-    fontSize: 14,
+    marginTop: 4,
+    fontSize: 12,
     color: '#636e72',
+    textAlign: 'center',
   },
   pulsingRefreshButton: {
     backgroundColor: '#FF6B00',
@@ -1128,6 +1313,95 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#95a5a6',
     marginTop: 12,
+  },
+  // Skeleton styles with better spacing and more realistic proportions
+  skeletonText: {
+    width: 80,
+    height: 18,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  skeletonBadge: {
+    width: 100,
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+  },
+  skeletonTime: {
+    width: 80,
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+  },
+  skeletonSectionTitle: {
+    width: 80,
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  skeletonName: {
+    width: 150,
+    height: 18,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginBottom: 12,
+  },
+  skeletonButton: {
+    width: 80,
+    height: 36,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 8,
+  },
+  skeletonMapIcon: {
+    width: 16,
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 8,
+  },
+  skeletonAddressLabel: {
+    width: 60,
+    height: 12,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+    marginBottom: 4,
+  },
+  skeletonAddress: {
+    width: '80%',
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+  },
+  skeletonMap: {
+    width: '100%',
+    height: 150,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 12,
+    marginVertical: 16,
+  },
+  skeletonOrderItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    height: 16,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+  },
+  skeletonTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    height: 18,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 4,
+  },
+  skeletonActionButton: {
+    width: '100%',
+    height: 46,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 10,
+    marginTop: 16,
   }
 });
 

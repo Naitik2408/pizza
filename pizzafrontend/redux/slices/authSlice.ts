@@ -1,11 +1,13 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-interface AuthState {
+export interface AuthState {
   token: string | null;
   role: string | null;
   name: string | null;
   email: string | null;
   isGuest: boolean;
+  userId: string | null;
+  socketConnected: boolean;
 }
 
 const initialState: AuthState = {
@@ -14,6 +16,8 @@ const initialState: AuthState = {
   name: null,
   email: null,
   isGuest: false,
+  userId: null,
+  socketConnected: false,
 };
 
 const authSlice = createSlice({
@@ -26,12 +30,15 @@ const authSlice = createSlice({
       name: string;
       email: string;
       isGuest?: boolean;
+      userId: string;
     }>) => {
       state.token = action.payload.token;
       state.role = action.payload.role;
       state.name = action.payload.name;
       state.email = action.payload.email;
       state.isGuest = action.payload.isGuest || false;
+      state.userId = action.payload.userId;
+      // Socket connection will be initialized separately
     },
     logout: (state) => {
       state.token = null;
@@ -39,6 +46,8 @@ const authSlice = createSlice({
       state.name = null;
       state.email = null;
       state.isGuest = false;
+      state.userId = null;
+      state.socketConnected = false;
     },
     restoreAuthState: (state, action: PayloadAction<{
       token: string;
@@ -46,14 +55,16 @@ const authSlice = createSlice({
       name: string;
       email: string;
       isGuest?: boolean;
+      userId: string;
     }>) => {
       state.token = action.payload.token;
       state.role = action.payload.role;
       state.name = action.payload.name;
       state.email = action.payload.email;
       state.isGuest = action.payload.isGuest || false;
+      state.userId = action.payload.userId;
+      // Socket connection will be initialized separately
     },
-    // Add this new reducer
     updateProfile: (state, action: PayloadAction<{
       name?: string;
       email?: string;
@@ -64,8 +75,23 @@ const authSlice = createSlice({
       if (action.payload.email) state.email = action.payload.email;
       // We don't update phone and address here as they're not in the auth state
     },
+    // Socket connection management
+    socketConnected: (state) => {
+      state.socketConnected = true;
+    },
+    socketDisconnected: (state) => {
+      state.socketConnected = false;
+    },
   },
 });
 
-export const { login, logout, restoreAuthState, updateProfile } = authSlice.actions;
+export const { 
+  login, 
+  logout, 
+  restoreAuthState, 
+  updateProfile, 
+  socketConnected, 
+  socketDisconnected 
+} = authSlice.actions;
+
 export default authSlice.reducer;

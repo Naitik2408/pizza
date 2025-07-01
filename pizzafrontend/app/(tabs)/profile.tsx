@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { LogOut, User, Check, X, Phone, Mail } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
@@ -7,6 +7,7 @@ import { logout, updateProfile } from '../../redux/slices/authSlice';
 import { API_URL } from '@/config';
 import { useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ActivityIndicator } from 'react-native';
 
 // Function to generate initials from name
 const getInitials = (name: string): string => {
@@ -38,21 +39,61 @@ const generateColorFromName = (name: string): string => {
   return colorPalette[index];
 };
 
-// First, add the updateProfile action to authSlice.ts
-// filepath: /home/naitik2408/Contribution/pizza/pizzafrontend/redux/slices/authSlice.ts
-// Add this to the reducers:
-/*
-updateProfile: (state, action: PayloadAction<{
-  name?: string;
-  email?: string;
-  phone?: string;
-}>) => {
-  if (action.payload.name) state.name = action.payload.name;
-  if (action.payload.email) state.email = action.payload.email;
-  // We don't update phone here as it's not in the state
-  // but it will be handled by the userProfile object
-}
-*/
+// Skeleton Loading component for profile
+const ProfileSkeleton = () => {
+  return (
+    <ScrollView style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.titleRow}>
+          <View style={styles.skeletonTitle} />
+        </View>
+        
+        <View style={styles.profile}>
+          {/* Skeleton avatar */}
+          <View style={styles.skeletonAvatar} />
+
+          <View style={styles.profileInfo}>
+            <View style={styles.skeletonName} />
+            <View style={styles.skeletonEmail} />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.content}>
+        {/* Personal Details Section */}
+        <View style={styles.detailsSection}>
+          <View style={styles.skeletonSectionTitle} />
+          
+          <View style={styles.fieldsContainer}>
+            {/* Field 1 */}
+            <View style={styles.fieldContainer}>
+              <View style={styles.fieldRow}>
+                <View style={styles.skeletonIcon} />
+                <View style={styles.fieldContent}>
+                  <View style={styles.skeletonFieldLabel} />
+                  <View style={styles.skeletonFieldValue} />
+                </View>
+              </View>
+            </View>
+            
+            {/* Field 2 */}
+            <View style={styles.fieldContainer}>
+              <View style={styles.fieldRow}>
+                <View style={styles.skeletonIcon} />
+                <View style={styles.fieldContent}>
+                  <View style={styles.skeletonFieldLabel} />
+                  <View style={styles.skeletonFieldValue} />
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.skeletonLogoutButton} />
+      </View>
+    </ScrollView>
+  );
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -282,13 +323,9 @@ export default function ProfileScreen() {
     );
   };
 
+  // Show skeleton loader while fetching profile data
   if (isFetchingProfile) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF6B00" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
-    );
+    return <ProfileSkeleton />;
   }
 
   return (
@@ -407,6 +444,68 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     marginBottom: 60,
   },
+  // Skeleton styles
+  skeletonTitle: {
+    width: 100,
+    height: 24,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+  },
+  skeletonAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E0E0E0',
+  },
+  skeletonName: {
+    width: 150,
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    marginBottom: 8,
+  },
+  skeletonEmail: {
+    width: 180,
+    height: 16,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+  },
+  skeletonSectionTitle: {
+    width: 120,
+    height: 18,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    marginBottom: 15,
+  },
+  skeletonIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E0E0E0',
+    marginRight: 16,
+  },
+  skeletonFieldLabel: {
+    width: 80,
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    marginBottom: 8,
+  },
+  skeletonFieldValue: {
+    width: '60%',
+    height: 16,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+  },
+  skeletonLogoutButton: {
+    height: 50,
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
+    marginHorizontal: 20,
+    marginTop: 30,
+    marginBottom: 20,
+  },
+  // Original styles
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
