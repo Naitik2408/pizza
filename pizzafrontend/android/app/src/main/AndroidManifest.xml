@@ -36,7 +36,6 @@
       </intent-filter>
     </activity>
     <activity android:name="com.razorpay.CheckoutActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize" android:theme="@style/AppTheme" android:exported="true" tools:replace="android:exported,android:theme"/>
-    <!-- Firebase Messaging Service -->
     <service android:name="com.google.firebase.messaging.FirebaseMessagingService" android:exported="true">
       <intent-filter>
         <action android:name="com.google.firebase.MESSAGING_EVENT"/>

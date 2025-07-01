@@ -24,6 +24,7 @@
     "buffer": "^6.0.3",
     "cloudinary-core": "^2.13.1",
     "date-fns": "^4.1.0",
+    "eas-cli": "^16.13.3",
     "expo": "^53.0.9",
     "expo-blur": "~14.1.4",
     "expo-camera": "~16.1.6",
