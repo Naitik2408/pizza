@@ -28,16 +28,10 @@ import {
 } from '../../../../redux/slices/cartSlice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import uuid from 'react-native-uuid';
-
-// Import Razorpay - try different import approaches
-let RazorpayCheckout: any;
-try {
-    // Attempt to import using require to prevent TypeScript issues
-    RazorpayCheckout = require('react-native-razorpay');
-} catch (error) {
-    console.error('Failed to load Razorpay module:', error);
-    RazorpayCheckout = null;
-}
+// Import Buffer
+import { Buffer } from 'buffer';
+// Import from our wrapper instead of directly
+import RazorpayCheckout, { isNativeRazorpayAvailable } from '../../../../utils/razorpay';
 
 interface PaymentMethodProps {
     onBack: () => void;
@@ -91,6 +85,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
     const [apiError, setApiError] = useState<string | null>(null);
     const [showWebView, setShowWebView] = useState(false);
     const [webViewUrl, setWebViewUrl] = useState('');
+    const [webViewHtml, setWebViewHtml] = useState('');
 
     // Guest user state
     const [guestName, setGuestName] = useState<string>('');
@@ -120,22 +115,16 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
     const appliedDiscount = useSelector((state: RootState) => state.cart.discount);
     const discountAmount = useSelector((state: RootState) => state.cart.discountAmount || 0);
 
+    // Razorpay order data
+    const [razorpayOrderData, setRazorpayOrderData] = useState<any>(null);
+    const [razorpayOrderAmount, setRazorpayOrderAmount] = useState<number>(0);
+
     // Check if Razorpay SDK is available
     const [isRazorpayAvailable, setIsRazorpayAvailable] = useState<boolean>(false);
-    
-    // Check Razorpay availability
-    useEffect(() => {
-        checkRazorpayAvailability();
-    }, []);
 
-    const checkRazorpayAvailability = () => {
-        if (RazorpayCheckout && typeof RazorpayCheckout.open === 'function') {
-            setIsRazorpayAvailable(true);
-        } else {
-            console.log('Razorpay SDK is not properly loaded. Will use WebView fallback if needed.');
-            setIsRazorpayAvailable(false);
-        }
-    };
+    useEffect(() => {
+        setIsRazorpayAvailable(isNativeRazorpayAvailable());
+    }, []);
 
     // Helper function to store guest orders in AsyncStorage
     const storeGuestOrder = async (orderData: any) => {
@@ -320,7 +309,8 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
         try {
             // For guest users, we'll generate a mock order ID
             if (isGuest) {
-                return { id: `guest_order_${Date.now()}` };
+                const mockOrderId = `guest_order_${Date.now()}`;
+                return { id: mockOrderId };
             }
 
             const response = await fetch(`${API_URL}/api/transactions/create-razorpay-order`, {
@@ -340,7 +330,9 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 throw new Error('Failed to create Razorpay order');
             }
 
-            return await response.json();
+            const orderData = await response.json();
+            console.log("Razorpay order created:", orderData);
+            return orderData;
         } catch (error) {
             console.error('Create Razorpay order error:', error);
             throw error;
@@ -353,6 +345,10 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
             // Get order ID from backend
             const orderData = await createRazorpayOrder();
             const orderAmount = Math.round(total * 100);
+
+            // Save order data for reference
+            setRazorpayOrderData(orderData);
+            setRazorpayOrderAmount(orderAmount);
 
             // Create a simple HTML page for Razorpay checkout
             const htmlContent = `
@@ -368,54 +364,13 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                         <h2>Initializing Payment...</h2>
                         <p>Please wait while we redirect you to the payment gateway.</p>
                     </div>
-                    
-                    <script>
-                        document.addEventListener('DOMContentLoaded', function() {
-                            var options = {
-                                key: "${PAYMENT_CONFIG.razorpay.keyId}",
-                                amount: ${orderAmount},
-                                currency: "${PAYMENT_CONFIG.razorpay.currency}",
-                                name: "${PAYMENT_CONFIG.razorpay.name}",
-                                description: "Payment for food order",
-                                image: "https://i.imgur.com/3g7nmJC.png",
-                                order_id: "${orderData.id}",
-                                prefill: {
-                                    name: "${isGuest ? (guestName || 'Guest') : userName}",
-                                    email: "${isGuest ? 'guest@example.com' : userEmail}",
-                                    contact: "${isGuest ? guestPhone : phone}"
-                                },
-                                theme: {
-                                    color: "#FF6B00"
-                                },
-                                handler: function(response) {
-                                    // Post message to React Native
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                                        type: 'payment_success',
-                                        data: response
-                                    }));
-                                }
-                            };
-                            
-                            var rzp = new Razorpay(options);
-                            rzp.on('payment.failed', function(response) {
-                                window.ReactNativeWebView.postMessage(JSON.stringify({
-                                    type: 'payment_failed',
-                                    data: response.error
-                                }));
-                            });
-                            
-                            // Open automatically
-                            setTimeout(() => {
-                                rzp.open();
-                            }, 1000);
-                        });
-                    </script>
                 </body>
                 </html>
             `;
 
-            // Set web view URL
+            // Use Buffer to properly encode the HTML content
             setWebViewUrl(`data:text/html;base64,${Buffer.from(htmlContent).toString('base64')}`);
+            setWebViewHtml(htmlContent); // Also store the raw HTML in case we need to use that approach
             setShowWebView(true);
 
         } catch (error) {
@@ -425,12 +380,21 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
         }
     };
 
-    // Handle WebView messages
+    // Update your handleWebViewMessage function to include debugging
     const handleWebViewMessage = (event: any) => {
         try {
+            console.log("WebView message received:", event.nativeEvent.data);
             const data = JSON.parse(event.nativeEvent.data);
+
+            if (data.type === 'debug') {
+                console.log("WebView debug:", data.data);
+                return;
+            }
+
             if (data.type === 'payment_success') {
+                console.log("Payment success data:", data.data);
                 setShowWebView(false);
+
                 // Process successful payment
                 if (!isGuest) {
                     verifyPayment(data.data, data.data.razorpay_order_id);
@@ -438,6 +402,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                     createOrder('Online', data.data);
                 }
             } else if (data.type === 'payment_failed') {
+                console.log("Payment failed data:", data.data);
                 setShowWebView(false);
                 Alert.alert('Payment Failed', data.data.description || 'Your payment was not completed');
                 setIsProcessingPayment(false);
@@ -471,9 +436,13 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
             const orderData = await createRazorpayOrder();
             const orderAmount = Math.round(total * 100); // Convert to paise
 
+            // Save order data for reference
+            setRazorpayOrderData(orderData);
+            setRazorpayOrderAmount(orderAmount);
+
             // Check if Razorpay SDK is available
-            console.log("Razorpay SDK check:", RazorpayCheckout, isRazorpayAvailable);
-            
+            console.log("Razorpay SDK check:", isRazorpayAvailable);
+
             // If SDK is not available, use WebView fallback
             if (!isRazorpayAvailable) {
                 console.log("Using WebView for payment");
@@ -501,7 +470,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
             };
 
             console.log("Opening Razorpay with options:", options);
-            
+
             // Open Razorpay checkout
             RazorpayCheckout.open(options)
                 .then((data: RazorpaySuccessResponse) => {
@@ -534,7 +503,6 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
     // Verify Razorpay payment with backend
     const verifyPayment = async (paymentData: any, orderId: string) => {
         try {
-            // Change this URL from /api/payments/verify to /api/transactions/verify-payment
             const response = await fetch(`${API_URL}/api/transactions/verify-payment`, {
                 method: 'POST',
                 headers: {
@@ -610,7 +578,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                 >
                     <View style={styles.webViewContainer}>
                         <View style={styles.webViewHeader}>
-                            <TouchableOpacity 
+                            <TouchableOpacity
                                 onPress={() => {
                                     setShowWebView(false);
                                     setIsProcessingPayment(false);
@@ -622,19 +590,127 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                             <Text style={styles.webViewTitle}>Complete Payment</Text>
                             <View style={{ width: 24 }} />
                         </View>
-                        
+
+                        // Replace your current WebView with this one:
                         <WebView
-                            source={{ uri: webViewUrl }}
+                            source={{
+                                html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Razorpay Payment</title>
+            <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+            <style>
+                body {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: #f8f9fa;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+                }
+                #payment-message {
+                    text-align: center;
+                    padding: 20px;
+                }
+                .loading {
+                    display: inline-block;
+                    width: 30px;
+                    height: 30px;
+                    border: 3px solid rgba(255,107,0,.3);
+                    border-radius: 50%;
+                    border-top-color: #FF6B00;
+                    animation: spin 1s ease-in-out infinite;
+                    margin-bottom: 20px;
+                }
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
+                }
+            </style>
+        </head>
+        <body>
+            <div id="payment-message">
+                <div class="loading"></div>
+                <h2>Initializing Payment...</h2>
+                <p>Please wait while we connect to the payment gateway.</p>
+            </div>
+        </body>
+        </html>
+    ` }}
                             onMessage={handleWebViewMessage}
                             javaScriptEnabled={true}
                             domStorageEnabled={true}
                             startInLoadingState={true}
-                            renderLoading={() => (
-                                <View style={styles.loaderContainer}>
-                                    <ActivityIndicator size="large" color="#FF6B00" />
-                                    <Text style={styles.loaderText}>Loading payment gateway...</Text>
-                                </View>
-                            )}
+                            injectedJavaScript={`
+        // Immediately invoke the function to open Razorpay
+        (function() {
+            try {
+                console.log("Initializing Razorpay...");
+                
+                var options = {
+                    key: "${PAYMENT_CONFIG.razorpay.keyId}",
+                    amount: ${razorpayOrderAmount},
+                    currency: "${PAYMENT_CONFIG.razorpay.currency}",
+                    name: "${PAYMENT_CONFIG.razorpay.name}",
+                    description: "Payment for food order",
+                    image: "https://i.imgur.com/3g7nmJC.png",
+                    order_id: "${razorpayOrderData?.id || ''}",
+                    prefill: {
+                        name: "${isGuest ? (guestName || 'Guest') : userName}",
+                        email: "${isGuest ? 'guest@example.com' : userEmail}",
+                        contact: "${isGuest ? guestPhone : phone}"
+                    },
+                    theme: {
+                        color: "#FF6B00"
+                    },
+                    handler: function(response) {
+                        document.getElementById('payment-message').innerHTML = '<h2>Payment Successful!</h2><p>Redirecting you back...</p>';
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'payment_success',
+                            data: response
+                        }));
+                    }
+                };
+                
+                // Create Razorpay instance
+                var rzp = new Razorpay(options);
+                
+                rzp.on('payment.failed', function(response) {
+                    document.getElementById('payment-message').innerHTML = '<h2>Payment Failed</h2><p>' + response.error.description + '</p>';
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'payment_failed',
+                        data: response.error
+                    }));
+                });
+                
+                // Open Razorpay after a short delay to ensure WebView is ready
+                setTimeout(function() {
+                    console.log("Opening Razorpay...");
+                    rzp.open();
+                }, 500);
+            } catch (error) {
+                document.getElementById('payment-message').innerHTML = '<h2>Error</h2><p>' + error.message + '</p>';
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'payment_failed',
+                    data: {
+                        description: 'Failed to initialize Razorpay: ' + error.message
+                    }
+                }));
+            }
+            
+            // Send debug info back to React Native
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'debug',
+                data: {
+                    message: 'Razorpay initialization attempted',
+                    orderId: "${razorpayOrderData?.id || ''}"
+                }
+            }));
+        })();
+        true;
+    `}
                             onError={(error) => {
                                 console.error('WebView error:', error);
                                 Alert.alert(
@@ -644,6 +720,12 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                                 setShowWebView(false);
                                 setIsProcessingPayment(false);
                             }}
+                            renderLoading={() => (
+                                <View style={styles.loaderContainer}>
+                                    <ActivityIndicator size="large" color="#FF6B00" />
+                                    <Text style={styles.loaderText}>Loading payment gateway...</Text>
+                                </View>
+                            )}
                         />
                     </View>
                 </Modal>
@@ -869,7 +951,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress }: PaymentMe
                             </Text>
                         </View>
                     )}
-                    
+
                     {/* SDK Status Info */}
                     {!isRazorpayAvailable && selectedMethod === 'razorpay' && (
                         <View style={styles.warningContainer}>
@@ -1252,7 +1334,7 @@ const styles = StyleSheet.create({
     disabledButton: {
         backgroundColor: '#CCCCCC',
     },
-    
+
     // WebView styles
     webViewContainer: {
         flex: 1,

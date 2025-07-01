@@ -1,56 +1,37 @@
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
-// Find the project root directory
 const projectRoot = __dirname;
+const nodeModulesPaths = [path.resolve(projectRoot, 'node_modules')];
 
-// Get the default Expo configuration
 const config = getDefaultConfig(projectRoot);
 
-// Configure metro to handle native modules properly
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, 'node_modules'),
+// Add the react-native-razorpay module to watchFolders
+config.watchFolders = [
+  ...nodeModulesPaths,
+  path.resolve(projectRoot, 'node_modules/react-native-razorpay')
 ];
 
-// Add support for native modules that might be nested
-config.resolver.extraNodeModules = {
-  ...config.resolver.extraNodeModules,
-  'react-native-razorpay': path.resolve(projectRoot, 'node_modules/react-native-razorpay'),
-};
+// Make sure the module is in the proper resolution paths
+config.resolver.nodeModulesPaths = nodeModulesPaths;
 
-// Allow importing any file extensions that your project needs
-config.resolver.sourceExts = [
-  ...config.resolver.sourceExts,
-  'jsx',
-  'js',
-  'ts',
-  'tsx',
-  'json',
-  'cjs',
-  'mjs',
-];
+// Remove any custom resolver logic that might cause problems
+config.resolver.resolveRequest = undefined;
 
-// Ensure symlinks work properly (particularly useful for monorepo setups)
-config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName.startsWith('react-native-razorpay')) {
-    return {
-      filePath: path.resolve(projectRoot, 'node_modules/react-native-razorpay'),
-      type: 'sourceFile',
-    };
-  }
-  return context.resolveRequest(context, moduleName, platform);
-};
+// Ensure blockList is properly handled - this fixes the "filter is not a function" error
+// The default blockList might be a RegExp or an array, so we need to check its type
+const defaultBlockList = config.resolver.blockList || [];
+let newBlockList = defaultBlockList;
 
-// Enable the experimental Hermes engine if you plan to use it
-config.transformer = {
-  ...config.transformer,
-  getTransformOptions: async () => ({
-    transform: {
-      experimentalImportSupport: false,
-      inlineRequires: true,
-    },
-  }),
-};
+// Only try to filter if it's an array
+if (Array.isArray(defaultBlockList)) {
+  const moduleBlockListExclusion = /node_modules\/react-native-razorpay\/.*/;
+  newBlockList = defaultBlockList.filter(pattern => 
+    !(pattern instanceof RegExp && pattern.toString() === moduleBlockListExclusion.toString())
+  );
+}
 
-// Export the final config
+// Set the updated blockList
+config.resolver.blockList = newBlockList;
+
 module.exports = config;
