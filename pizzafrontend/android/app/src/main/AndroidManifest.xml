@@ -6,6 +6,16 @@
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+  
+  <!-- Critical alarm permissions for Zomato-like behavior -->
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+  <uses-permission android:name="android.permission.WAKE_LOCK"/>
+  <uses-permission android:name="android.permission.DISABLE_KEYGUARD"/>
+  <uses-permission android:name="android.permission.TURN_SCREEN_ON"/>
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -41,5 +51,17 @@
         <action android:name="com.google.firebase.MESSAGING_EVENT"/>
       </intent-filter>
     </service>
+    
+    <!-- Pizza Order Alarm Receiver - Works even when app is closed -->
+    <receiver android:name=".PizzaAlarmReceiver" android:enabled="true" android:exported="true">
+      <intent-filter>
+        <action android:name="com.pizzaapp.ORDER_ALARM"/>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+      </intent-filter>
+    </receiver>
+    
+    <!-- Foreground service for persistent order monitoring -->
+    <service android:name=".PizzaOrderService" android:enabled="true" android:exported="false" android:foregroundServiceType="dataSync"/>
+    
   </application>
 </manifest>

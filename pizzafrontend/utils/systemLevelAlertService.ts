@@ -32,17 +32,34 @@ class SystemLevelAlertService {
         const notification = (data as any).notification;
         const notificationData = notification?.request?.content?.data;
         
-        if (notificationData?.type === 'new_order_alarm' || notificationData?.type === 'new_order') {
-          console.log('🚨 Processing background order alert:', notificationData);
+        if (notificationData?.type === 'new_order_alarm' || 
+            notificationData?.type === 'new_order' ||
+            notificationData?.type === 'critical_order_alert' ||
+            notificationData?.type === 'system_level_alert' ||
+            notificationData?.type === 'escalating_alert') {
+          console.log(`🚨 Processing background order alert (${notificationData?.type}):`, notificationData);
           
-          // Send system-level alert immediately
+          // Handle different notification types appropriately
           try {
-            await SystemLevelAlertService.sendSystemLevelAlert({
-              orderId: notificationData.orderId || '',
-              orderNumber: notificationData.orderNumber || '',
-              customerName: notificationData.customerName || 'Customer',
-              amount: parseInt(notificationData.amount || '0')
-            });
+            if (notificationData?.type === 'escalating_alert') {
+              // For escalating alerts, trigger alarm/vibration but don't send new notification
+              console.log('⏰ Triggering escalating alert alarm in background...');
+              await SystemLevelAlertService.triggerAlarmInBackground({
+                orderId: notificationData.orderId || '',
+                orderNumber: notificationData.orderNumber || '',
+                customerName: notificationData.customerName || 'Customer',
+                amount: parseInt(notificationData.amount || '0'),
+                urgency: notificationData.urgency || 'High'
+              });
+            } else {
+              // For new orders, send full system-level alert
+              await SystemLevelAlertService.sendSystemLevelAlert({
+                orderId: notificationData.orderId || '',
+                orderNumber: notificationData.orderNumber || '',
+                customerName: notificationData.customerName || 'Customer',
+                amount: parseInt(notificationData.amount || '0')
+              });
+            }
           } catch (err) {
             console.error('Background alert failed:', err);
           }
@@ -578,6 +595,47 @@ class SystemLevelAlertService {
       console.log('✅ Fallback notification sent');
     } catch (error) {
       console.error('❌ Fallback notification failed:', error);
+    }
+  }
+
+  /**
+   * Trigger alarm/vibration in background for escalating alerts
+   */
+  static async triggerAlarmInBackground(alertData: OrderData & { urgency?: string }) {
+    try {
+      console.log('⏰ Triggering background alarm for escalating alert...');
+      
+      if (Platform.OS === 'android') {
+        // Trigger immediate vibration
+        const { Haptics } = require('expo-haptics');
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        
+        // Schedule a simple alert notification with high priority
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: `🚨 ${alertData.urgency || 'High'} PRIORITY: Order Waiting!`,
+            body: `⏰ Order ${alertData.orderNumber} still needs attention!\n👤 ${alertData.customerName}\n💰 ₹${alertData.amount}`,
+            data: {
+              ...alertData,
+              type: 'background_escalating_alarm'
+            } as Record<string, unknown>,
+            sound: 'notification_sound.wav',
+            priority: Notifications.AndroidNotificationPriority.MAX,
+            ...(Platform.OS === 'android' && {
+              channelId: 'critical_order_alerts',
+              vibrationPattern: [0, 2000, 500, 2000, 500, 2000],
+              sticky: true,
+              autoDismiss: false
+            })
+          },
+          trigger: null,
+          identifier: `background_alarm_${alertData.orderId}_${Date.now()}`
+        });
+        
+        console.log('✅ Background alarm triggered successfully');
+      }
+    } catch (error) {
+      console.error('❌ Error triggering background alarm:', error);
     }
   }
 }

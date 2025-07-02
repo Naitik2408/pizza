@@ -18,6 +18,7 @@ interface UpdateStatusModalProps {
   onUpdateStatus: (status: OrderStatus) => void;
   getStatusColor: (status: string) => string;
   isProcessing: boolean;
+  userRole?: 'admin' | 'delivery' | 'customer'; // Add user role prop
 }
 
 const statusOptions: OrderStatus[] = ['Pending', 'Preparing', 'Out for delivery', 'Delivered', 'Cancelled'];
@@ -29,8 +30,35 @@ const UpdateStatusModal: React.FC<UpdateStatusModalProps> = ({
   onUpdateStatus,
   getStatusColor,
   isProcessing,
+  userRole = 'admin', // Default to admin
 }) => {
   if (!order) return null;
+
+  // Filter status options based on user role and current status
+  const getAvailableStatusOptions = (): OrderStatus[] => {
+    if (userRole === 'delivery') {
+      // Delivery agents can only update to specific statuses based on current status
+      if (order.status === 'Preparing') {
+        return ['Out for delivery'];
+      } else if (order.status === 'Out for delivery') {
+        return ['Delivered'];
+      } else {
+        return []; // No valid transitions for other statuses
+      }
+    } else if (userRole === 'customer') {
+      // Customers can only cancel orders if they're in Pending or Preparing status
+      if (order.status === 'Pending' || order.status === 'Preparing') {
+        return ['Cancelled'];
+      } else {
+        return []; // Cannot cancel orders in other statuses
+      }
+    } else {
+      // Admin can update to any status
+      return statusOptions;
+    }
+  };
+
+  const availableStatusOptions = getAvailableStatusOptions();
 
   return (
     <Modal
@@ -66,35 +94,43 @@ const UpdateStatusModal: React.FC<UpdateStatusModalProps> = ({
 
             <Text style={styles.statusSelectionLabel}>Select New Status:</Text>
 
-            <View style={styles.statusOptions}>
-              {statusOptions.map((status, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.statusOption,
-                    {
-                      backgroundColor: order.status === status
-                        ? '#F5F5F5'
-                        : getStatusColor(status),
-                      opacity: order.status === status ? 0.5 : 1
-                    }
-                  ]}
-                  onPress={() => onUpdateStatus(status)}
-                  disabled={order.status === status || isProcessing}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[
-                    styles.statusOptionText,
-                    order.status === status && { color: '#666' }
-                  ]}>
-                    {status}
-                  </Text>
-                  {order.status === status && (
-                    <Check size={18} color="#666" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
+            {availableStatusOptions.length === 0 ? (
+              <View style={styles.noOptionsContainer}>
+                <Text style={styles.noOptionsText}>
+                  No status updates available for this order at the moment.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.statusOptions}>
+                {availableStatusOptions.map((status, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.statusOption,
+                      {
+                        backgroundColor: order.status === status
+                          ? '#F5F5F5'
+                          : getStatusColor(status),
+                        opacity: order.status === status ? 0.5 : 1
+                      }
+                    ]}
+                    onPress={() => onUpdateStatus(status)}
+                    disabled={order.status === status || isProcessing}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[
+                      styles.statusOptionText,
+                      order.status === status && { color: '#666' }
+                    ]}>
+                      {status}
+                    </Text>
+                    {order.status === status && (
+                      <Check size={18} color="#666" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             <View style={styles.statusActionButtons}>
               <TouchableOpacity
@@ -271,6 +307,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
+  },
+  noOptionsContainer: {
+    backgroundColor: '#F8F9FA',
+    padding: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  noOptionsText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });
 

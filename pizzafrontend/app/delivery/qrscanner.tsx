@@ -12,7 +12,8 @@ import {
   Dimensions,
   Linking,
   FlatList,
-  Animated
+  Animated,
+  RefreshControl
 } from 'react-native';
 import { 
   ArrowLeft, 
@@ -141,23 +142,6 @@ const EmptyPaymentsView = ({ onRefresh, refreshing }: EmptyPaymentsViewProps) =>
             <Text style={styles.infoText}>Collect payments via UPI QR code</Text>
           </View>
         </View>
-
-        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-          <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={onRefresh}
-            disabled={refreshing}
-          >
-            {refreshing ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <RefreshCw size={18} color="#FFFFFF" />
-                <Text style={styles.refreshButtonText}>Check for Payments</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </Animated.View>
       </View>
     </View>
   );
@@ -497,6 +481,14 @@ const QRPaymentScreen = () => {
         <ScrollView
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleOrdersRefresh}
+              colors={['#1c1917']}
+              tintColor="#1c1917"
+            />
+          }
         >
           {!activeOrderId ? (
             <>
@@ -541,7 +533,7 @@ const QRPaymentScreen = () => {
 
               <View style={styles.qrContainer}>
                 <View style={styles.qrHeaderRow}>
-                  <QrCode size={20} color="#1c1917" />
+                  <QrCode size={20} color="#FF6B00" />
                   <Text style={styles.qrTitle}>Payment QR Code</Text>
                 </View>
                 
@@ -569,21 +561,21 @@ const QRPaymentScreen = () => {
                 )}
 
                 <View style={styles.refreshSection}>
-                  <TouchableOpacity
-                    style={styles.refreshButton}
-                    onPress={handleRefresh}
-                    disabled={refreshing}
-                  >
-                    <RefreshCw size={16} color="#FFFFFF" />
-                    <Text style={styles.refreshButtonText}>Refresh QR</Text>
-                  </TouchableOpacity>
-
                   <View style={styles.lastUpdatedContainer}>
                     <Clock size={12} color="#95a5a6" />
                     <Text style={styles.lastRefreshText}>
                       Updated: {new Date(lastRefresh).toLocaleTimeString()}
                     </Text>
                   </View>
+                  
+                  <TouchableOpacity
+                    style={styles.refreshButton}
+                    onPress={handleRefresh}
+                    disabled={refreshing}
+                  >
+                    <RefreshCw size={14} color="#FFFFFF" />
+                    <Text style={styles.refreshButtonText}>Refresh</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -601,13 +593,14 @@ const QRPaymentScreen = () => {
                 <View style={styles.paymentDetailRow}>
                   <Text style={styles.paymentDetailLabel}>UPI ID</Text>
                   <View style={styles.paymentDetailValueContainer}>
-                    <Text style={styles.paymentDetailValue}>{shopPaymentDetails.upiId}</Text>
+                    <Text style={styles.paymentDetailValue} numberOfLines={1} ellipsizeMode="middle">
+                      {shopPaymentDetails.upiId}
+                    </Text>
                     <TouchableOpacity 
                       style={styles.copyButton} 
                       onPress={copyUpiId}
                     >
-                      <Copy size={16} color="#FFFFFF" />
-                      <Text style={styles.copyButtonText}>Copy</Text>
+                      <Copy size={12} color="#FFFFFF" />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -958,19 +951,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1c1917',
-    borderRadius: 30,
-    paddingVertical: 14,
-    paddingHorizontal: 30,
+    backgroundColor: '#FF6B00',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowRadius: 4,
+    elevation: 2,
   },
   refreshButtonText: {
-    marginLeft: 8,
-    fontSize: 16,
+    marginLeft: 6,
+    fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '600',
   },
@@ -1014,6 +1007,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
+    minHeight: 48,
   },
   paymentDetailLabel: {
     fontSize: 14,
@@ -1022,32 +1016,31 @@ const styles = StyleSheet.create({
   paymentDetailValueContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    marginLeft: 12,
   },
   paymentDetailValue: {
     fontSize: 16,
     fontWeight: '500',
     color: '#1c1917',
-    marginRight: 12,
+    marginRight: 8,
+    flex: 1,
   },
   copyButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1c1917',
+    backgroundColor: '#FF6B00',
     paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     borderRadius: 6,
-  },
-  copyButtonText: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-    marginLeft: 4,
+    minWidth: 32,
+    justifyContent: 'center',
   },
   upiAppButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1c1917',
+    backgroundColor: '#FF6B00',
     borderRadius: 8,
     paddingVertical: 14,
     marginTop: 20,
@@ -1091,7 +1084,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#1c1917',
+    backgroundColor: '#FF6B00',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -1118,10 +1111,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   shareButton: {
-    backgroundColor: '#1c1917',
+    backgroundColor: '#FF6B00',
   },
   confirmButton: {
-    backgroundColor: '#1c1917',
+    backgroundColor: '#2ECC71',
   },
   actionButtonText: {
     color: '#FFFFFF',

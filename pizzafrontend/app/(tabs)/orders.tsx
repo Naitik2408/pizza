@@ -17,6 +17,35 @@ import { MapPin, Clock, Star, ChevronDown, ArrowLeft, AlertCircle, LogIn, Shoppi
 import { API_URL } from '@/config';
 import { RootState } from '../../redux/store';
 
+// Helper functions for avatar generation
+const getInitials = (name: string): string => {
+  if (!name) return 'DA'; // Delivery Agent default
+
+  const words = name.trim().split(' ');
+  if (words.length === 1) return words[0].substring(0, 2).toUpperCase();
+
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+};
+
+const generateColorFromName = (name: string): string => {
+  if (!name) return '#FF6B00'; // Default color
+
+  // Simple hash function for name to generate consistent colors
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  // Generate vibrant colors
+  const colorPalette = [
+    '#FF6B00', '#4F46E5', '#10B981', '#F59E0B', '#EC4899',
+    '#8B5CF6', '#06B6D4', '#F43F5E', '#84CC16', '#6366F1'
+  ];
+
+  const index = Math.abs(hash % colorPalette.length);
+  return colorPalette[index];
+};
+
 // Define interface for order item
 interface OrderItem {
   menuItemId?: string;
@@ -429,51 +458,70 @@ export default function OrdersScreen() {
 
   // Render order items
   const renderOrderItems = (items: OrderItem[]): React.ReactNode[] => {
-    return items.map((item, index) => (
-      <View key={index} style={styles.orderItem}>
-        <Image
-          source={{
-            uri: item.image || 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=300&auto=format&fit=crop&q=80'
-          }}
-          style={styles.itemImage}
-        />
-        <View style={styles.itemDetails}>
-          <Text style={styles.itemName}>{item.name}</Text>
-          <Text style={styles.itemQuantity}>
-            x{item.quantity} {item.size && `• ${item.size}`}
-          </Text>
-
-          {/* Display base customizations if available */}
-          {item.customizations && item.customizations.length > 0 && (
-            <Text style={styles.itemCustomizations}>
-              Customizations: {item.customizations.map(c => `${c.name}: ${c.option}`).join(', ')}
+    return items.map((item, index) => {
+      // Debug logging for image URLs
+      console.log(`Order item ${item.name} image URL:`, item.image);
+      
+      // Determine the best image URL to use
+      let imageUrl = item.image;
+      
+      // If no image or empty string, use a reliable default
+      if (!imageUrl || imageUrl === '' || imageUrl === 'undefined') {
+        // Use a simple, reliable default food image
+        imageUrl = 'https://via.placeholder.com/150x150/f97316/ffffff?text=Food';
+      }
+      
+      return (
+        <View key={index} style={styles.orderItem}>
+          <Image
+            source={{ uri: imageUrl }}
+            style={styles.itemImage}
+            defaultSource={{ uri: 'https://via.placeholder.com/48x48/f97316/ffffff?text=Food' }}
+            onError={(error) => {
+              console.log('Failed to load image for item:', item.name, 'URL:', imageUrl, 'Error:', error.nativeEvent);
+            }}
+            onLoad={() => {
+              console.log('Successfully loaded image for:', item.name);
+            }}
+          />
+          <View style={styles.itemDetails}>
+            <Text style={styles.itemName}>{item.name}</Text>
+            <Text style={styles.itemQuantity}>
+              x{item.quantity} {item.size && `• ${item.size}`}
             </Text>
-          )}
 
-          {/* Display add-ons if available */}
-          {item.addOns && item.addOns.length > 0 && (
-            <Text style={styles.itemCustomizations}>
-              Add-ons: {item.addOns.map(addon => addon.name).join(', ')}
-            </Text>
-          )}
+            {/* Display base customizations if available */}
+            {item.customizations && item.customizations.length > 0 && (
+              <Text style={styles.itemCustomizations}>
+                Customizations: {item.customizations.map(c => `${c.name}: ${c.option}`).join(', ')}
+              </Text>
+            )}
 
-          {/* Display toppings if available */}
-          {item.toppings && item.toppings.length > 0 && (
-            <Text style={styles.itemCustomizations}>
-              Toppings: {item.toppings.map(topping => topping.name).join(', ')}
-            </Text>
-          )}
+            {/* Display add-ons if available */}
+            {item.addOns && item.addOns.length > 0 && (
+              <Text style={styles.itemCustomizations}>
+                Add-ons: {item.addOns.map(addon => addon.name).join(', ')}
+              </Text>
+            )}
 
-          {/* Display special instructions if available */}
-          {item.specialInstructions && (
-            <Text style={styles.itemCustomizations}>
-              Instructions: {item.specialInstructions}
-            </Text>
-          )}
+            {/* Display toppings if available */}
+            {item.toppings && item.toppings.length > 0 && (
+              <Text style={styles.itemCustomizations}>
+                Toppings: {item.toppings.map(topping => topping.name).join(', ')}
+              </Text>
+            )}
+
+            {/* Display special instructions if available */}
+            {item.specialInstructions && (
+              <Text style={styles.itemCustomizations}>
+                Instructions: {item.specialInstructions}
+              </Text>
+            )}
+          </View>
+          <Text style={styles.itemPrice}>₹{(item.totalPrice || (item.price * item.quantity)).toFixed(2)}</Text>
         </View>
-        <Text style={styles.itemPrice}>₹{(item.totalPrice || (item.price * item.quantity)).toFixed(2)}</Text>
-      </View>
-    ));
+      );
+    });
   };
 
   // Render invoice details
@@ -542,16 +590,17 @@ export default function OrdersScreen() {
   } | null | undefined): React.ReactNode | null => {
     if (!agent) return null;
 
+    const initials = getInitials(agent.name || '');
+    const avatarColor = generateColorFromName(agent.name || '');
+
     return (
       <View style={styles.deliveryAgentContainer}>
         <Text style={styles.sectionTitle}>Delivery Agent</Text>
         <View style={styles.agentInfoContainer}>
-          <Image
-            source={{
-              uri: agent.photo || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80'
-            }}
-            style={styles.agentPhoto}
-          />
+          {/* Use initials-based avatar instead of photo */}
+          <View style={[styles.agentAvatar, { backgroundColor: avatarColor }]}>
+            <Text style={styles.agentAvatarText}>{initials}</Text>
+          </View>
           <View style={styles.agentDetails}>
             <Text style={styles.agentName}>{agent.name || 'Delivery Agent'}</Text>
             <Text style={styles.agentPhone}>{agent.phone || 'Contact not available'}</Text>
@@ -787,9 +836,16 @@ export default function OrdersScreen() {
           <View style={styles.orderSummary}>
             <Image
               source={{
-                uri: order.items[0].image || 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=300&auto=format&fit=crop&q=80'
+                uri: order.items[0].image || 'https://via.placeholder.com/150x150/f97316/ffffff?text=Food'
               }}
               style={styles.summaryImage}
+              defaultSource={{ uri: 'https://via.placeholder.com/40x40/f97316/ffffff?text=Food' }}
+              onError={(error) => {
+                console.log('Failed to load summary image for order:', order.orderNumber, 'URL:', order.items[0].image, 'Error:', error.nativeEvent);
+              }}
+              onLoad={() => {
+                console.log('Successfully loaded summary image for order:', order.orderNumber);
+              }}
             />
             <Text style={styles.summaryText}>
               {order.items[0].name} {order.items.length > 1 ? `+ ${order.items.length - 1} more` : ''}
@@ -963,8 +1019,8 @@ const styles = StyleSheet.create({
   orderCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
+    padding: 12,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -978,7 +1034,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   orderNumber: {
     fontSize: 16,
@@ -1007,7 +1063,7 @@ const styles = StyleSheet.create({
   deliveryTimeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 10,
   },
   deliveryTimeText: {
     marginLeft: 6,
@@ -1038,21 +1094,21 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   orderDetails: {
-    marginTop: 15,
-    paddingTop: 15,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 12,
+    marginBottom: 8,
     color: '#333',
   },
   orderItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   itemImage: {
     width: 48,
@@ -1085,8 +1141,8 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   deliveryAgentContainer: {
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: 12,
+    marginBottom: 12,
   },
   agentInfoContainer: {
     flexDirection: 'row',
@@ -1094,6 +1150,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F8F8',
     borderRadius: 12,
     padding: 12,
+  },
+  agentAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  agentAvatarText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
   },
   agentPhoto: {
     width: 40,
@@ -1126,7 +1194,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   addressContainer: {
-    marginVertical: 20,
+    marginVertical: 12,
   },
   addressContent: {
     flexDirection: 'row',
@@ -1145,8 +1213,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   timelineContainer: {
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: 12,
+    marginBottom: 12,
   },
   timelineItem: {
     flexDirection: 'row',
@@ -1188,8 +1256,8 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   invoiceContainer: {
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: 12,
+    marginBottom: 12,
   },
   invoiceTitle: {
     fontSize: 16,
@@ -1239,8 +1307,8 @@ const styles = StyleSheet.create({
   },
   pastOrderActions: {
     flexDirection: 'row',
-    marginTop: 15,
-    marginBottom: 10,
+    marginTop: 10,
+    marginBottom: 8,
   },
   reorderButton: {
     backgroundColor: '#F97316',
@@ -1272,7 +1340,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   viewDetailsText: {
     color: '#F97316',

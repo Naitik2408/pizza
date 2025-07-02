@@ -17,7 +17,10 @@ Notifications.setNotificationHandler({
     const notificationType = notification.request.content.data?.type;
     
     // Handle new order notifications with maximum priority
-    if (notificationType === 'new_order_alarm') {
+    if (notificationType === 'new_order_alarm' || 
+        notificationType === 'critical_order_alert' ||
+        notificationType === 'system_level_alert' ||
+        notificationType === 'escalating_alert') {
       return {
         shouldShowAlert: true,
         shouldPlaySound: true,
@@ -101,8 +104,12 @@ function AppInitializer() {
       console.log('🏷️ Notification type:', notificationType);
       console.log('👤 Current user role:', role);
       
-      // Trigger alarm for new order notifications (handle both types for compatibility)
-      if ((notificationType === 'new_order_alarm' || notificationType === 'new_order') && 
+      // Trigger alarm for new order notifications (handle all types for compatibility)
+      if ((notificationType === 'new_order_alarm' || 
+           notificationType === 'new_order' || 
+           notificationType === 'critical_order_alert' ||
+           notificationType === 'system_level_alert' ||
+           notificationType === 'escalating_alert') && 
           (role === 'admin' || role === 'delivery')) {
         
         console.log('🎯 NEW ORDER NOTIFICATION DETECTED - Processing...');
@@ -115,18 +122,17 @@ function AppInitializer() {
         };
         
         console.log('📦 Extracted order data:', JSON.stringify(orderData, null, 2));
-        console.log('🚨 Triggering SYSTEM-LEVEL alert for order:', orderData.orderNumber);
+        console.log('🚨 Triggering ENHANCED alert for order:', orderData.orderNumber);
         
-        // Trigger BOTH in-app alert AND system-level alert
+        // Trigger in-app alert sound/vibration
         console.log('🔔 Starting in-app alert...');
         orderAlertService.playOrderAlert(orderData);
         
-        // Also send system-level alert that works when app is closed
-        console.log('📱 Starting system-level alert...');
-        SystemLevelAlertService.sendSystemLevelAlert(orderData);
+        // Note: Enhanced system-level alert already sent from orders page, no need to duplicate here
+        console.log('📱 Enhanced notification system already handled the alert');
       } else {
         console.log('ℹ️ Notification not processed - either wrong type or wrong user role');
-        console.log('   - Type match:', (notificationType === 'new_order_alarm' || notificationType === 'new_order'));
+        console.log('   - Type match:', (notificationType === 'new_order_alarm' || notificationType === 'new_order' || notificationType === 'critical_order_alert' || notificationType === 'system_level_alert' || notificationType === 'escalating_alert'));
         console.log('   - Role match:', (role === 'admin' || role === 'delivery'));
       }
     });

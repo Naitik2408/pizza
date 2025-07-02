@@ -10,7 +10,8 @@ import {
   RefreshControl,
   Alert,
   Animated,
-  Dimensions
+  Dimensions,
+  ScrollView
 } from 'react-native';
 import { 
   Star, 
@@ -30,6 +31,36 @@ import { API_URL } from '@/config';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+// Function to generate initials from name
+const getInitials = (name: string): string => {
+  if (!name) return 'CU'; // Customer default
+
+  const words = name.trim().split(' ');
+  if (words.length === 1) return words[0].substring(0, 2).toUpperCase();
+
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+};
+
+// Function to generate a consistent color based on name
+const generateColorFromName = (name: string): string => {
+  if (!name) return '#FF6B00'; // Default color
+
+  // Simple hash function for name to generate consistent colors
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  // Generate vibrant colors
+  const colorPalette = [
+    '#FF6B00', '#4F46E5', '#10B981', '#F59E0B', '#EC4899',
+    '#8B5CF6', '#06B6D4', '#F43F5E', '#84CC16', '#6366F1'
+  ];
+
+  const index = Math.abs(hash % colorPalette.length);
+  return colorPalette[index];
+};
+
 interface OrderItem {
   name: string;
   quantity: number;
@@ -42,6 +73,10 @@ interface CompletedOrder {
   time: string;
   customerName: string;
   items: OrderItem[];
+  subtotal: number;
+  deliveryFee: number;
+  tax: number;
+  discount: number;
   total: number;
   commission: number;
   deliveryDuration: string;
@@ -131,7 +166,7 @@ const EmptyCompletedOrdersView = ({ onRefresh, refreshing }: EmptyOrdersViewProp
         <View style={styles.emptyInfoContainer}>
           <View style={styles.infoCard}>
             <View style={styles.infoIconContainer}>
-              <Package size={20} color="#1c1917" />
+              <Package size={20} color="#FF6B00" />
             </View>
             <Text style={styles.infoTitle}>Start Delivering</Text>
             <Text style={styles.infoText}>Accept orders from the assigned orders tab</Text>
@@ -139,7 +174,7 @@ const EmptyCompletedOrdersView = ({ onRefresh, refreshing }: EmptyOrdersViewProp
           
           <View style={styles.infoCard}>
             <View style={styles.infoIconContainer}>
-              <Award size={20} color="#1c1917" />
+              <Award size={20} color="#FF6B00" />
             </View>
             <Text style={styles.infoTitle}>Earn Ratings</Text>
             <Text style={styles.infoText}>Deliver on time for better ratings</Text>
@@ -147,7 +182,7 @@ const EmptyCompletedOrdersView = ({ onRefresh, refreshing }: EmptyOrdersViewProp
           
           <View style={styles.infoCard}>
             <View style={styles.infoIconContainer}>
-              <TrendingUp size={20} color="#1c1917" />
+              <TrendingUp size={20} color="#FF6B00" />
             </View>
             <Text style={styles.infoTitle}>Track Progress</Text>
             <Text style={styles.infoText}>Monitor your earnings and performance</Text>
@@ -256,6 +291,10 @@ const CompletedOrders = () => {
           time: formattedTime || '', 
           customerName: order.customerName || 'Unknown Customer',
           items: order.items || [],
+          subtotal: order.subtotal || 0,
+          deliveryFee: order.deliveryFee || 0,
+          tax: order.tax || 0,
+          discount: order.discount || 0,
           total: order.total || 0,
           commission: order.commission || 0,
           deliveryDuration: order.deliveryDuration || '30 min',
@@ -325,6 +364,10 @@ const CompletedOrders = () => {
   // Render order items
   const renderOrderItem = ({ item }: { item: CompletedOrder }) => {
     const isExpanded = expandedOrder === item.id;
+    
+    // Generate initials and avatar color for customer
+    const customerInitials = getInitials(item.customerName);
+    const avatarColor = generateColorFromName(item.customerName);
 
     return (
       <TouchableOpacity
@@ -346,20 +389,13 @@ const CompletedOrders = () => {
         </View>
 
         <View style={styles.customerSection}>
-          <View style={styles.customerImageContainer}>
-            <Image
-              source={{ uri: item.customerImage }}
-              style={styles.customerImage}
-            />
+          <View style={[styles.customerAvatar, { backgroundColor: avatarColor }]}>
+            <Text style={styles.customerAvatarText}>{customerInitials}</Text>
           </View>
           <View style={styles.customerInfo}>
             <View style={styles.customerNameContainer}>
               <User size={14} color="#666" />
               <Text style={styles.customerName}>{item.customerName}</Text>
-            </View>
-            <View style={styles.deliveryInfo}>
-              <Text style={styles.deliveryTime}>Delivered in {item.deliveryDuration}</Text>
-              {renderRatingStars(item.rating)}
             </View>
           </View>
         </View>
@@ -377,24 +413,40 @@ const CompletedOrders = () => {
 
             <View style={styles.divider} />
 
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Total Order Value</Text>
-              <Text style={styles.totalAmount}>₹{item.total.toFixed(2)}</Text>
-            </View>
-            
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Your Commission</Text>
-              <Text style={styles.commissionAmount}>₹{item.commission.toFixed(2)}</Text>
-            </View>
-
-            {item.feedback && (
-              <View style={styles.feedbackContainer}>
-                <Text style={styles.sectionTitle}>Customer Feedback</Text>
-                <View style={styles.feedbackContent}>
-                  <Text style={styles.feedbackText}>"{item.feedback}"</Text>
-                </View>
+            <View style={styles.priceBreakdown}>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Subtotal</Text>
+                <Text style={styles.totalAmount}>₹{item.subtotal.toFixed(2)}</Text>
               </View>
-            )}
+              
+              {item.deliveryFee > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Delivery Fee</Text>
+                  <Text style={styles.totalAmount}>₹{item.deliveryFee.toFixed(2)}</Text>
+                </View>
+              )}
+              
+              {item.tax > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>GST & Taxes</Text>
+                  <Text style={styles.totalAmount}>₹{item.tax.toFixed(2)}</Text>
+                </View>
+              )}
+              
+              {item.discount > 0 && (
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Discount</Text>
+                  <Text style={styles.discountAmount}>-₹{item.discount.toFixed(2)}</Text>
+                </View>
+              )}
+              
+              <View style={styles.divider} />
+              
+              <View style={styles.totalRow}>
+                <Text style={styles.grandTotalLabel}>Total Paid</Text>
+                <Text style={styles.grandTotalAmount}>₹{item.total.toFixed(2)}</Text>
+              </View>
+            </View>
           </View>
         )}
 
@@ -500,7 +552,22 @@ const CompletedOrders = () => {
       </View>
 
       {completedOrders.length === 0 && !loading ? (
-        <EmptyCompletedOrdersView onRefresh={onRefresh} refreshing={refreshing} />
+        <ScrollView
+          contentContainerStyle={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#FF6B00']}
+              tintColor="#FF6B00"
+              title="Refreshing history..."
+              titleColor="#666"
+            />
+          }
+        >
+          <EmptyCompletedOrdersView onRefresh={onRefresh} refreshing={refreshing} />
+        </ScrollView>
       ) : (
         <FlatList
           data={completedOrders}
@@ -512,8 +579,8 @@ const CompletedOrders = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              colors={['#1c1917']}
-              tintColor="#1c1917"
+              colors={['#FF6B00']}
+              tintColor="#FF6B00"
               title="Refreshing history..."
               titleColor="#666"
             />
@@ -565,8 +632,8 @@ const styles = StyleSheet.create({
     borderColor: '#F0F0F0',
   },
   selectedDateFilter: {
-    backgroundColor: '#1c1917',
-    borderColor: '#1c1917',
+    backgroundColor: '#FF6B00',
+    borderColor: '#FF6B00',
   },
   dateFilterText: {
     fontSize: 14,
@@ -630,16 +697,17 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
   },
-  customerImageContainer: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: '#F0F0F0',
-  },
-  customerImage: {
+  customerAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  customerAvatarText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: 'white',
   },
   customerInfo: {
     flex: 1,
@@ -718,9 +786,30 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   totalAmount: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1c1917',
+  },
+  priceBreakdown: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  discountAmount: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#2ECC71',
+  },
+  grandTotalLabel: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#1c1917',
+  },
+  grandTotalAmount: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#FF6B00',
   },
   commissionAmount: {
     fontSize: 16,
@@ -782,7 +871,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   retryButton: {
-    backgroundColor: '#1c1917',
+    backgroundColor: '#FF6B00',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,

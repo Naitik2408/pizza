@@ -623,6 +623,22 @@ const MenuScreen = () => {
     return totalPrice * quantity;
   };
 
+  // Helper function to get the correct display price for menu items
+  const getDisplayPrice = (item: MenuItem): number => {
+    // If item has multiple sizes (sizeVariations), show the lowest price
+    if (item.hasMultipleSizes && item.sizeVariations && item.sizeVariations.length > 0) {
+      const availableVariations = item.sizeVariations.filter(variation => variation.available);
+      if (availableVariations.length > 0) {
+        // Return the minimum price from available variations
+        return Math.min(...availableVariations.map(variation => variation.price));
+      }
+      // Fallback to first variation if none are available (shouldn't happen)
+      return item.sizeVariations[0].price;
+    }
+    // For fixed-price items, return the base price
+    return item.price;
+  };
+
   const renderSkeletonItem = () => (
     <View style={styles.skeletonItem}>
       <View style={styles.skeletonImage} />
@@ -668,11 +684,7 @@ const MenuScreen = () => {
             {item.description}
           </Text>
           <View style={styles.menuItemFooter}>
-            <Text style={styles.menuItemPrice}>₹{item.price.toFixed(2)}</Text>
-            <View style={styles.ratingContainer}>
-              <AntDesign name="star" size={14} color="#FF6B00" />
-              <Text style={styles.rating}>{item.rating.toFixed(1)}</Text>
-            </View>
+            <Text style={styles.menuItemPrice}>₹{getDisplayPrice(item).toFixed(2)}</Text>
             <TouchableOpacity
               style={[styles.addButton, !item.available && styles.addButtonDisabled]}
               onPress={() => openItemDetail(item)}
@@ -966,11 +978,6 @@ const MenuScreen = () => {
                       </View>
                     )
                   )}
-                </View>
-
-                <View style={styles.ratingContainer}>
-                  <AntDesign name="star" size={16} color="#FF6B00" />
-                  <Text style={styles.rating}>{selectedItemDetail.rating.toFixed(1)}</Text>
                 </View>
 
                 <Text style={styles.modalItemDescription}>
@@ -1389,16 +1396,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FF6B00',
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 16,
-  },
-  rating: {
-    marginLeft: 4,
-    fontSize: 12,
-    color: '#777',
   },
   addButton: {
     flexDirection: 'row',

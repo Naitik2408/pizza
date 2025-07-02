@@ -16,7 +16,7 @@ test_notification() {
     echo "   Amount: ₹$amount"
     echo ""
     
-    curl -s -X POST http://localhost:3000/api/test/notification \
+    curl -s -X POST http://localhost:5000/api/test/notification \
       -H "Content-Type: application/json" \
       -d "{
         \"type\": \"test_enhanced\",

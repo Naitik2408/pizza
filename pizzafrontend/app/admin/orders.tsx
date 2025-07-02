@@ -33,6 +33,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import orderAlertService from '../../utils/orderAlertService';
 import SystemLevelAlertService from '../../utils/systemLevelAlertService';
+import { ZomatoLikePizzaAlarm } from '../../utils/nativeAlarmService';
 
 import OrderCard from '../component/admin/manageOrder/orderCard';
 import OrderDetailsModal from '../component/admin/manageOrder/orderDetailsModal';
@@ -432,37 +433,49 @@ const AdminOrders = () => {
       // Update total count
       setTotalOrders(prevTotal => prevTotal + 1);
 
-      // DON'T show orange notification overlay - system notification is enough
+      // DON'T show orange notification overlay - native alarm is better
       console.log('📱 Skipping in-app notification overlay');
 
-      // ONLY send ONE enhanced system-level alert (no duplicates)
-      console.log('🚨 Sending ENHANCED system-level alert...');
+      // 🚨 NATIVE ZOMATO-LIKE ALARM SYSTEM
+      console.log('🚨 Triggering NATIVE Zomato-like alarm system...');
       try {
-        // Use the enhanced method that prevents duplicates and escalates
-        await SystemLevelAlertService.sendEnhancedSystemAlert({
+        await ZomatoLikePizzaAlarm.setUrgentOrderAlarm({
           orderId: data._id,
           orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
           customerName: data.customerName || data.customer || 'New customer',
           amount: data.amount || 0
         });
         
-        console.log('✅ Enhanced system-level alert sent successfully');
-      } catch (alertError) {
-        console.error('❌ Enhanced system alert failed:', alertError);
+        console.log('✅ NATIVE Zomato-like alarm activated successfully');
+        console.log('   🔥 This will work even when app is CLOSED!');
+      } catch (alarmError) {
+        console.error('❌ Native alarm failed, falling back to system notification:', alarmError);
         
-        // Fallback to basic in-app alert only if system alert fails
+        // Fallback to previous system notification
         try {
-          orderAlertService.playOrderAlert({
+
+          await SystemLevelAlertService.sendEnhancedSystemAlert({
             orderId: data._id,
             orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
             customerName: data.customerName || data.customer || 'New customer',
             amount: data.amount || 0
           });
+          console.log('✅ Fallback system alert sent');
         } catch (fallbackError) {
-          console.error('❌ Fallback alert also failed:', fallbackError);
+          console.error('❌ All alert systems failed:', fallbackError);
+          // Final fallback to basic in-app alert
+          try {
+            orderAlertService.playOrderAlert({
+              orderId: data._id,
+              orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
+              customerName: data.customerName || data.customer || 'New customer',
+              amount: data.amount || 0
+            });
+          } catch (finalError) {
+            console.error('❌ Even basic alert failed:', finalError);
+          }
         }
-      };
-
+      }
       // Pulse animation for visual feedback
       animatePulse();
     };

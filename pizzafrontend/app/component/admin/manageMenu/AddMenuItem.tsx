@@ -83,9 +83,7 @@ const AddMenuItem = ({
         sizeVariations: [] as SizeVariation[],
         hasMultipleSizes: false,
         hasAddOns: false,
-        addOnGroups: [] as AddOnGroup[],
-        rating: '',
-        ratingCount: 0
+        addOnGroups: [] as AddOnGroup[]
     });
 
     const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
@@ -370,9 +368,7 @@ const AddMenuItem = ({
             sizeVariations: [],
             hasMultipleSizes: false,
             hasAddOns: false,
-            addOnGroups: [],
-            rating: '',
-            ratingCount: 0
+            addOnGroups: []
         });
         setSizeVariations([]);
         setAddOnGroups([]);
@@ -399,7 +395,6 @@ const AddMenuItem = ({
             const newItem = {
                 ...formData,
                 price: formData.sizeType === 'single' ? parseFloat(formData.price) : 0,
-                rating: formData.rating === '' ? 0 : parseFloat(formData.rating),
                 sizeVariations: formData.sizeType === 'multiple' ? sizeVariations : [],
                 hasMultipleSizes: formData.sizeType === 'multiple',
                 size: formData.sizeType === 'single' ? formData.size : 'Not Applicable',
@@ -565,19 +560,6 @@ const AddMenuItem = ({
                                 multiline={true}
                                 numberOfLines={3}
                             />
-                        </View>
-
-                        <View style={styles.formRow}>
-                            <View style={[styles.formGroup, { flex: 1 }]}>
-                                <Text style={styles.formLabel}>Initial Rating</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    value={formData.rating.toString()}
-                                    onChangeText={(text) => setFormData({ ...formData, rating: text })}
-                                    placeholder="0.0"
-                                    keyboardType="numeric"
-                                />
-                            </View>
                         </View>
 
                         <View style={styles.formRow}>

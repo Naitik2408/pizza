@@ -6,7 +6,7 @@ echo "========================================="
 # Test 1: Basic notification functionality
 echo ""
 echo "📱 Test 1: Testing basic enhanced notification..."
-curl -X POST http://localhost:3000/api/test/notification \
+curl -X POST http://localhost:5000/api/test/notification \
   -H "Content-Type: application/json" \
   -d '{
     "type": "test_enhanced",
@@ -25,7 +25,7 @@ sleep 10
 # Test 2: Duplicate prevention
 echo ""
 echo "📱 Test 2: Testing duplicate prevention (sending same order twice)..."
-curl -X POST http://localhost:3000/api/test/notification \
+curl -X POST http://localhost:5000/api/test/notification \
   -H "Content-Type: application/json" \
   -d '{
     "type": "test_enhanced",
@@ -37,7 +37,7 @@ curl -X POST http://localhost:3000/api/test/notification \
     }
   }'
 
-curl -X POST http://localhost:3000/api/test/notification \
+curl -X POST http://localhost:5000/api/test/notification \
   -H "Content-Type: application/json" \
   -d '{
     "type": "test_enhanced",
