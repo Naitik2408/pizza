@@ -1,6 +1,6 @@
 import { Middleware, Action } from 'redux';
 import { initializeSocket, joinSocketRooms, disconnectSocket } from '../../utils/socket';
-import { RootState } from '../store';
+import { SocketMiddlewareState } from '../types';
 
 // Define an interface for actions with a type property
 interface TypedAction extends Action {
@@ -10,7 +10,7 @@ interface TypedAction extends Action {
 /**
  * Redux middleware for managing the socket connection based on auth state changes
  */
-export const socketMiddleware: Middleware<{}, RootState> = (store) => (next) => (action: any) => {
+export const socketMiddleware: Middleware<{}, SocketMiddlewareState> = (store) => (next) => (action: any) => {
   const result = next(action);
   const state = store.getState();
   

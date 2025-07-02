@@ -29,7 +29,51 @@
           ],
           "androidMode": "default",
           "androidCollapsedTitle": "Friends Pizza Hut",
-          "iosDisplayInForeground": true
+          "iosDisplayInForeground": true,
+          "androidChannels": [
+            {
+              "id": "order_alerts",
+              "name": "Order Alerts",
+              "description": "Critical notifications for new orders - System Level Alerts",
+              "priority": "max",
+              "vibrationPattern": [
+                0,
+                1500,
+                300,
+                1500,
+                300,
+                1500
+              ],
+              "sound": "notification_sound.wav",
+              "enableLights": true,
+              "lightColor": "#FF6B00",
+              "lockscreenVisibility": "public",
+              "bypassDnd": true,
+              "importance": "max",
+              "showBadge": true
+            },
+            {
+              "id": "full_screen_alerts",
+              "name": "Full Screen Order Alerts",
+              "description": "Call-like alerts for new orders",
+              "priority": "max",
+              "vibrationPattern": [
+                0,
+                2000,
+                500,
+                2000,
+                500,
+                2000
+              ],
+              "sound": "notification_sound.wav",
+              "enableLights": true,
+              "lightColor": "#FF0000",
+              "lockscreenVisibility": "public",
+              "bypassDnd": true,
+              "importance": "max",
+              "showBadge": true
+            }
+          ]
         }
       ],
       [
@@ -37,7 +81,8 @@
       ],
       [
         "./plugins/withFirebaseMessaging.js"
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
@@ -52,14 +97,20 @@
     },
     "android": {
       "package": "com.naitik2408.boltexponativewind",
-      "useNextNotificationsApi": true,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "NOTIFICATIONS",
         "ACCESS_NOTIFICATION_POLICY",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "WAKE_LOCK",
+        "USE_FULL_SCREEN_INTENT",
+        "SYSTEM_ALERT_WINDOW",
+        "DISABLE_KEYGUARD",
+        "TURN_SCREEN_ON",
+        "SHOW_WHEN_LOCKED",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ]
     },
     "updates": {

@@ -31,6 +31,8 @@ import Animated, {
   cancelAnimation,
   Easing
 } from 'react-native-reanimated';
+import orderAlertService from '../../utils/orderAlertService';
+import SystemLevelAlertService from '../../utils/systemLevelAlertService';
 
 import OrderCard from '../component/admin/manageOrder/orderCard';
 import OrderDetailsModal from '../component/admin/manageOrder/orderDetailsModal';
@@ -323,13 +325,7 @@ const AdminOrders = () => {
 
   // Socket.io state
   const [socket, setSocket] = useState<any>(null);
-  const [notificationVisible, setNotificationVisible] = useState(false);
-  const [newOrderInfo, setNewOrderInfo] = useState<{
-    orderId: string;
-    orderNumber: string;
-    customerName: string;
-    amount: number;
-  } | null>(null);
+  // Removed notification overlay state - using system notifications only
 
   const [filters, setFilters] = useState<OrderFilters>({
     date: '',
@@ -399,7 +395,7 @@ const AdminOrders = () => {
     if (!socket) return;
 
     // Handle new order event
-    const handleNewOrder = (data: NewOrderEventData) => {
+    const handleNewOrder = async (data: NewOrderEventData) => {
       console.log("New order received in admin orders page:", data);
 
       // Trigger haptic feedback for new order
@@ -436,15 +432,36 @@ const AdminOrders = () => {
       // Update total count
       setTotalOrders(prevTotal => prevTotal + 1);
 
-      // Show notification
-      setNewOrderInfo({
-        orderId: data._id,
-        orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
-        customerName: data.customerName || data.customer || 'New customer',
-        amount: data.amount || 0
-      });
+      // DON'T show orange notification overlay - system notification is enough
+      console.log('📱 Skipping in-app notification overlay');
 
-      showNotification();
+      // ONLY send ONE enhanced system-level alert (no duplicates)
+      console.log('🚨 Sending ENHANCED system-level alert...');
+      try {
+        // Use the enhanced method that prevents duplicates and escalates
+        await SystemLevelAlertService.sendEnhancedSystemAlert({
+          orderId: data._id,
+          orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
+          customerName: data.customerName || data.customer || 'New customer',
+          amount: data.amount || 0
+        });
+        
+        console.log('✅ Enhanced system-level alert sent successfully');
+      } catch (alertError) {
+        console.error('❌ Enhanced system alert failed:', alertError);
+        
+        // Fallback to basic in-app alert only if system alert fails
+        try {
+          orderAlertService.playOrderAlert({
+            orderId: data._id,
+            orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
+            customerName: data.customerName || data.customer || 'New customer',
+            amount: data.amount || 0
+          });
+        } catch (fallbackError) {
+          console.error('❌ Fallback alert also failed:', fallbackError);
+        }
+      };
 
       // Pulse animation for visual feedback
       animatePulse();
@@ -545,40 +562,8 @@ const AdminOrders = () => {
     };
   }, [socket, selectedOrder]);
 
-  // Function to show notification
-  const showNotification = () => {
-    setNotificationVisible(true);
-
-    // Clear any existing timeout
-    if (notificationTimeoutRef.current) {
-      clearTimeout(notificationTimeoutRef.current);
-    }
-
-    // Reset animation value to starting position
-    notificationAnim.setValue(-100);
-
-    // Create animation sequence
-    RNAnimated.sequence([
-      RNAnimated.timing(notificationAnim, {
-        toValue: 10,
-        duration: 500,
-        useNativeDriver: true
-      }),
-      RNAnimated.delay(5000),
-      RNAnimated.timing(notificationAnim, {
-        toValue: -100,
-        duration: 500,
-        useNativeDriver: true
-      })
-    ]).start(() => {
-      setNotificationVisible(false);
-    });
-
-    // Auto-hide after 5.5 seconds
-    notificationTimeoutRef.current = setTimeout(() => {
-      setNotificationVisible(false);
-    }, 5500);
-  };
+  // Function to show notification - REMOVED: Using system notifications only
+  // const showNotification = () => { ... }
 
   // Function to animate pulse effect
   const animatePulse = () => {
@@ -631,6 +616,13 @@ const AdminOrders = () => {
       }
 
       const data = await response.json();
+      
+      console.log('📦 Order details received from backend:', JSON.stringify(data, null, 2));
+
+      // Validate that we have required data
+      if (!data._id) {
+        throw new Error('Invalid order data: missing order ID');
+      }
 
       // Format the order for display
       const formattedOrder: Order = {
@@ -647,7 +639,7 @@ const AdminOrders = () => {
         tax: data.tax,
         deliveryFee: data.deliveryFee,
         discounts: data.discounts,
-        items: data.items.map((item: any): OrderItem => ({
+        items: Array.isArray(data.items) ? data.items.map((item: any): OrderItem => ({
           name: item.name || "Unknown Item",
           quantity: item.quantity || 1,
           price: item.price || 0,
@@ -663,22 +655,28 @@ const AdminOrders = () => {
           hasCustomizations: item.hasCustomizations || false,
           customizationCount: item.customizationCount || 0,
           image: item.image || null
-        })),
+        })) : [], // Provide empty array if data.items is not an array
         address: data.fullAddress || data.address?.street || '',
         fullAddress: data.fullAddress || (data.address ? `${data.address.street}, ${data.address.city}` : ''),
         notes: data.notes || '',
         paymentMethod: data.paymentMethod,
         paymentStatus: data.paymentStatus || 'Pending',
         customerPhone: data.customerPhone,
-        statusUpdates: data.statusUpdates || [],
-        totalItemsCount: data.totalItemsCount || data.items.length
+        statusUpdates: Array.isArray(data.statusUpdates) ? data.statusUpdates : [],
+        totalItemsCount: data.totalItemsCount || (Array.isArray(data.items) ? data.items.length : 0)
       };
 
       setSelectedOrder(formattedOrder);
       setDetailsModalVisible(true);
       setLoadingOrderDetails(false);
     } catch (err) {
-      console.error('Error fetching order details:', err);
+      console.error('❌ Error fetching order details:', err);
+      console.error('❌ Error details:', {
+        message: err instanceof Error ? err.message : 'Unknown error',
+        stack: err instanceof Error ? err.stack : undefined,
+        orderId
+      });
+      
       const errorMessage = err instanceof Error ? err.message : 'Failed to load order details';
       Alert.alert('Error', `${errorMessage}. Please try again.`);
       setLoadingOrderDetails(false);
@@ -1074,17 +1072,8 @@ const AdminOrders = () => {
     </View>
   );
 
-  // Function to handle clicking on notification - go to order details
-  const handleNotificationPress = () => {
-    if (newOrderInfo && newOrderInfo.orderId) {
-      fetchOrderDetails(newOrderInfo.orderId);
-      // Hide notification
-      if (notificationTimeoutRef.current) {
-        clearTimeout(notificationTimeoutRef.current);
-      }
-      setNotificationVisible(false);
-    }
-  };
+  // Function to handle clicking on notification - REMOVED: Using system notifications only
+  // const handleNotificationPress = () => { ... }
 
   useEffect(() => {
     fetchOrders(1);
@@ -1112,55 +1101,7 @@ const AdminOrders = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* New Order Notification */}
-      {notificationVisible && newOrderInfo && (
-        <RNAnimated.View
-          style={[
-            styles.notificationContainer,
-            {
-              transform: [{ translateY: notificationAnim }] // Using notificationAnim instead of notificationAnimRef
-            }
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.notificationContent}
-            onPress={handleNotificationPress}
-            activeOpacity={0.9}
-          >
-            <View style={styles.notificationIcon}>
-              <Bell size={24} color="#FFFFFF" />
-            </View>
-            <View style={styles.notificationTextContainer}>
-              <Text style={styles.notificationTitle}>New Order Received!</Text>
-              <Text style={styles.notificationDescription}>
-                {newOrderInfo.customerName} placed order {newOrderInfo.orderNumber}
-              </Text>
-              <Text style={styles.notificationAmount}>
-                {formatCurrency(newOrderInfo.amount)}
-              </Text>
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.notificationClose}
-            onPress={() => {
-              if (notificationTimeoutRef.current) {
-                clearTimeout(notificationTimeoutRef.current);
-              }
-
-              // Animate out and then hide
-              RNAnimated.timing(notificationAnim, { // Using notificationAnim instead of notificationAnimRef
-                toValue: -100,
-                duration: 300,
-                useNativeDriver: true
-              }).start(() => {
-                setNotificationVisible(false);
-              });
-            }}
-          >
-            <X size={16} color="#FFFFFF" />
-          </TouchableOpacity>
-        </RNAnimated.View>
-      )}
+      {/* Orange notification overlay removed - using system notifications only */}
 
       {loading && !refreshing ? (
         <>
@@ -1239,7 +1180,7 @@ const AdminOrders = () => {
             renderItem={({ item, index }) => (
               <RNAnimated.View // Changed from Animated.View to RNAnimated.View
                 style={[
-                  { transform: [{ scale: index === 0 && notificationVisible ? pulseAnim : 1 }] } // Using pulseAnim instead of pulseAnimRef
+                  { transform: [{ scale: 1 }] } // Removed notificationVisible condition since using system notifications only
                 ]}
               >
                 <OrderCard

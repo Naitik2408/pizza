@@ -333,10 +333,12 @@ const AdminDashboard = () => {
             >
               <View style={styles.headerContent}>
                 <Text style={styles.welcomeText}>Welcome back, Admin</Text>
-                <Text style={styles.dateText}>
+                <View style={styles.dateContainer}>
                   <Calendar size={14} color="#fff" style={{ marginRight: 5 }} />
-                  {getCurrentDate()}
-                </Text>
+                  <Text style={styles.dateText}>
+                    {getCurrentDate()}
+                  </Text>
+                </View>
               </View>
             </LinearGradient>
           </ImageBackground>
@@ -409,7 +411,7 @@ const AdminDashboard = () => {
                     <Clock size={24} color="#FF3B30" />
                   </View>
                   <View>
-                    <Text style={styles.statsCardValue}>{dashboardStats.quickStats.pendingDeliveries}</Text>
+                    <Text style={styles.statsCardValue}>{dashboardStats.ordersByStatus.inProgress}</Text>
                     <Text style={styles.statsCardLabel}>Pending</Text>
                   </View>
                 </View>
@@ -793,9 +795,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#fff',
     opacity: 0.8,
-    marginBottom: 10,
+  },
+  dateContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 10,
   },
   dashboardHeader: {
     flexDirection: 'row',
