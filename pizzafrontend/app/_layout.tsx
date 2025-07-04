@@ -10,6 +10,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import orderAlertService from '../src/utils/orderAlertService';
 import SystemLevelAlertService from '../src/utils/systemLevelAlertService';
+import ErrorBoundary from '../src/components/common/ErrorBoundary';
 
 // Enhanced notification configuration for alarm-like behavior
 Notifications.setNotificationHandler({
@@ -240,16 +241,18 @@ export default function RootLayout() {
   return (
     <Provider store={store}>
       <AppInitializer />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="admin" />
-        <Stack.Screen name="delivery" />
-        {/* <Stack.Screen name="cart" /> */}
-        {/* <Stack.Screen name="order-confirmation" /> */}
-        {/* <Stack.Screen name="(modals)" /> */}
-        <Stack.Screen name="+not-found" />
-      </Stack>
+      <ErrorBoundary>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="admin" />
+          <Stack.Screen name="delivery" />
+          {/* <Stack.Screen name="cart" /> */}
+          {/* <Stack.Screen name="order-confirmation" /> */}
+          {/* <Stack.Screen name="(modals)" /> */}
+          <Stack.Screen name="+not-found" />
+        </Stack>
+      </ErrorBoundary>
       <StatusBar style="auto" />
     </Provider>
   );

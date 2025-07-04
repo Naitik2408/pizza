@@ -384,31 +384,30 @@ function HomeScreen() {
     };
   }, []); // Only run once on mount
 
-  // Periodic socket connection check - runs every 30 seconds
+  // Optimized socket connection check - runs every 60 seconds (reduced frequency)
   useEffect(() => {
     const connectionCheckInterval = setInterval(async () => {
       const { isSocketConnected, ensureSocketConnection, joinSocketRooms } = await import('@/src/utils/socket');
       
+      // Only check connection if we're supposed to be connected
       if (!isSocketConnected()) {
-
         const state = store.getState();
         const { token, userId, role } = state.auth;
         
+        // Only attempt reconnection if we have valid auth
         if (token && userId) {
           const socket = ensureSocketConnection(token);
           if (socket) {
             joinSocketRooms(userId, role || 'customer');
-
           }
         }
       }
-    }, 30000); // Check every 30 seconds
+    }, 60000); // Increased to 60 seconds for better performance
 
     return () => {
       clearInterval(connectionCheckInterval);
     };
   }, []);
-
 
   const navigateToCart = () => {
     router.push('/cart');

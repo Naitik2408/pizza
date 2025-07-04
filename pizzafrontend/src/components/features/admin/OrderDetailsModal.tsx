@@ -12,8 +12,8 @@ import Animated, {
   Easing
 } from 'react-native-reanimated';
 
-// Skeleton component
-const Skeleton = ({
+// Optimized Skeleton component with simplified animation
+const Skeleton = React.memo(({
   width,
   height,
   style,
@@ -22,14 +22,12 @@ const Skeleton = ({
   height: number | string;
   style?: any;
 }) => {
-  const opacity = useSharedValue(0.5);
+  const opacity = useSharedValue(0.3);
 
   useEffect(() => {
+    // Simplified animation - reduces CPU usage
     opacity.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 750, easing: Easing.ease }),
-        withTiming(0.5, { duration: 750, easing: Easing.ease })
-      ),
+      withTiming(1, { duration: 1000 }),
       -1,
       true
     );
@@ -37,7 +35,7 @@ const Skeleton = ({
     return () => {
       cancelAnimation(opacity);
     };
-  }, [opacity]);
+  }, []);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -57,7 +55,7 @@ const Skeleton = ({
       ]}
     />
   );
-};
+});
 
 // Updated OrderDetailsModal props interface
 interface OrderDetailsModalProps {

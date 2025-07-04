@@ -18,8 +18,9 @@ import { Filter, Search, X, ShoppingBag, AlertCircle, ChevronDown, Package, Bell
 import { useSelector } from 'react-redux';
 import { RootState } from '@/redux/store';
 import { API_URL } from '@/config';
-import { io } from 'socket.io-client';
+import { getSocket } from '@/src/utils/socket';
 import * as Haptics from 'expo-haptics';
+import ErrorBoundary from '@/src/components/common/ErrorBoundary';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -374,41 +375,48 @@ const AdminOrders = () => {
   const notificationTimeoutRef = useRef<number | null>(null);
 
   // Socket setup for real-time updates
-  useEffect(() => {
-    if (!token) return;
-
-    // Create socket connection
-    const newSocket = io(API_URL, {
-      transports: ['websocket'],
-      auth: { token },
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
-    });
-
-    setSocket(newSocket);
-
+  const setupSocketListeners = (socketInstance: any) => {
     // Socket connection events
-    newSocket.on('connect', () => {
-
-
+    socketInstance.on('connect', () => {
       // Join admin room for broadcasts
-      newSocket.emit('join', {
+      socketInstance.emit('join', {
         userId: 'admin',
         role: 'admin'
       });
     });
 
-    newSocket.on('connect_error', (error) => {
+    socketInstance.on('connect_error', (error: any) => {
       console.error('Socket connection error:', error);
     });
+  };
+
+  // Initialize socket connection
+  useEffect(() => {
+    if (!token) return;
+
+    const initSocket = async () => {
+      // Use centralized socket service to prevent multiple connections
+      const existingSocket = getSocket();
+      if (existingSocket && existingSocket.connected) {
+        setSocket(existingSocket);
+        setupSocketListeners(existingSocket);
+        return;
+      }
+
+      // Initialize socket through centralized service
+      const { initializeSocket } = await import('@/src/utils/socket');
+      const newSocket = initializeSocket(token);
+      
+      if (newSocket) {
+        setSocket(newSocket);
+        setupSocketListeners(newSocket);
+      }
+    };
+
+    initSocket();
 
     // Clean up on unmount
     return () => {
-      if (newSocket) {
-
-        newSocket.disconnect();
-      }
-
       // Clear any pending notification timeouts
       if (notificationTimeoutRef.current) {
         clearTimeout(notificationTimeoutRef.current);
@@ -740,10 +748,12 @@ const AdminOrders = () => {
     }
 
     try {
-      let url = `${API_URL}/api/orders?page=${page}`;
+      // Optimized pagination with smaller page size for faster loading
+      const limit = 15; // Reduced from default to load faster
+      let url = `${API_URL}/api/orders?page=${page}&limit=${limit}`;
 
       if (filters.status || filters.date || filters.deliveryAgent) {
-        url = `${API_URL}/api/orders/filter?page=${page}`;
+        url = `${API_URL}/api/orders/filter?page=${page}&limit=${limit}`;
 
         if (filters.status) {
           url += `&status=${filters.status}`;
@@ -759,7 +769,7 @@ const AdminOrders = () => {
       }
 
       if (searchQuery) {
-        url = `${API_URL}/api/orders/search?query=${searchQuery}&page=${page}`;
+        url = `${API_URL}/api/orders/search?query=${searchQuery}&page=${page}&limit=${limit}`;
       }
 
 
