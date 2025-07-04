@@ -16,7 +16,6 @@ import {
 import { 
   Star, 
   ChevronRight, 
-  ArrowLeft, 
   Package, 
   Calendar, 
   Clock, 
@@ -28,6 +27,7 @@ import {
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { API_URL } from '@/config';
+import { formatOrderId, displayOrderId } from '@/src/utils/orderUtils';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -286,7 +286,7 @@ const CompletedOrders = () => {
         });
 
         return {
-          id: order.id || order._id,
+          id: formatOrderId(order.orderNumber, order._id),
           date: formattedDate || '', 
           time: formattedTime || '', 
           customerName: order.customerName || 'Unknown Customer',
@@ -340,11 +340,6 @@ const CompletedOrders = () => {
     fetchCompletedOrders();
   }, [fetchCompletedOrders]);
 
-  // Function to handle going back
-  const handleGoBack = () => {
-    router.back();
-  };
-
   // Render star ratings
   const renderRatingStars = (rating: number) => {
     return (
@@ -378,7 +373,7 @@ const CompletedOrders = () => {
         <View style={styles.orderHeader}>
           <View style={styles.orderIdContainer}>
             <Package size={16} color="#1c1917" />
-            <Text style={styles.orderId}>#{item.id}</Text>
+            <Text style={styles.orderId}>{displayOrderId(item.id)}</Text>
           </View>
           <View style={styles.dateTimeContainer}>
             <Calendar size={14} color="#666" />
@@ -471,10 +466,13 @@ const CompletedOrders = () => {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <ArrowLeft size={24} color="#1c1917" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Delivery History</Text>
+          <View>
+            <Text style={styles.title}>Delivery History</Text>
+            <Text style={styles.subtitle}>
+              0 completed deliveries
+              {refreshing ? ' • Refreshing...' : ''}
+            </Text>
+          </View>
         </View>
         
         <View style={styles.dateFilterContainer}>
@@ -502,10 +500,13 @@ const CompletedOrders = () => {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-            <ArrowLeft size={24} color="#1c1917" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Delivery History</Text>
+          <View>
+            <Text style={styles.title}>Delivery History</Text>
+            <Text style={styles.subtitle}>
+              0 completed deliveries
+              {refreshing ? ' • Refreshing...' : ''}
+            </Text>
+          </View>
         </View>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
@@ -520,10 +521,13 @@ const CompletedOrders = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-          <ArrowLeft size={24} color="#1c1917" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Delivery History</Text>
+        <View>
+          <Text style={styles.title}>Delivery History</Text>
+          <Text style={styles.subtitle}>
+            {completedOrders.length} completed {completedOrders.length === 1 ? 'delivery' : 'deliveries'}
+            {refreshing ? ' • Refreshing...' : ''}
+          </Text>
+        </View>
       </View>
 
       <View style={styles.dateFilterContainer}>
@@ -605,14 +609,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
-  },
-  backButton: {
-    marginRight: 16,
+    zIndex: 10,
+    elevation: 2,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1c1917',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 4,
   },
   dateFilterContainer: {
     backgroundColor: '#FFFFFF',

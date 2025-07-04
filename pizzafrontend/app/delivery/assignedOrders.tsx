@@ -38,6 +38,7 @@ import { ZomatoLikePizzaAlarm } from '../../src/utils/nativeAlarmService';
 import SystemLevelAlertService from '../../src/utils/systemLevelAlertService';
 import * as Haptics from 'expo-haptics';
 import { ErrorModal, SuccessModal, ConfirmationModal } from '../../src/components/modals';
+import { formatOrderId, displayOrderId } from '@/src/utils/orderUtils';
 
 // Function to generate initials from name
 const getInitials = (name: string): string => {
@@ -408,7 +409,7 @@ const AssignedOrders = () => {
         .map((order: any) => ({
           ...order,
           // Ensure required fields have default values
-          id: order.id || order._id || `temp-${Date.now()}`,
+          id: formatOrderId(order.orderNumber, order._id),
           _id: order._id || `temp-${Date.now()}`,
           customer: order.customer || { name: 'Customer', contact: 'N/A' },
           items: Array.isArray(order.items) ? order.items : [],
@@ -747,7 +748,7 @@ const AssignedOrders = () => {
           try {
             await ZomatoLikePizzaAlarm.setUrgentOrderAlarm({
               orderId: orderData._id || orderData.orderNumber,
-              orderNumber: orderData.orderNumber || `#${orderData._id}`,
+              orderNumber: formatOrderId(orderData.orderNumber, orderData._id),
               customerName: orderData.customerName || 'Customer',
               amount: orderData.amount || 0
             });
@@ -760,7 +761,7 @@ const AssignedOrders = () => {
           // Show alert to user
           showConfirmationModal(
             '🍕 New Delivery Assignment!',
-            `Order ${orderData.orderNumber || orderData._id} has been assigned to you. Customer: ${orderData.customerName || 'N/A'}`,
+            `Order ${formatOrderId(orderData.orderNumber, orderData._id)} has been assigned to you. Customer: ${orderData.customerName || 'N/A'}`,
             () => {
               closeConfirmationModal();
               // Refresh orders to show the new assignment
@@ -778,7 +779,7 @@ const AssignedOrders = () => {
           // Still show the alert even if alarm fails
           showConfirmationModal(
             '🍕 New Delivery Assignment!',
-            `Order ${orderData.orderNumber || orderData._id} has been assigned to you. Customer: ${orderData.customerName || 'N/A'}`,
+            `Order ${formatOrderId(orderData.orderNumber, orderData._id)} has been assigned to you. Customer: ${orderData.customerName || 'N/A'}`,
             () => {
               closeConfirmationModal();
               // Refresh orders to show the new assignment
@@ -833,7 +834,7 @@ const AssignedOrders = () => {
           // Show cancellation alert
           showErrorModal(
             '⚠️ Order Unassigned',
-            `Order ${orderData.orderNumber || orderData._id} has been unassigned or cancelled.`
+            `Order ${formatOrderId(orderData.orderNumber, orderData._id)} has been unassigned or cancelled.`
           );
           
           // Remove the cancelled order from local state
@@ -1009,7 +1010,7 @@ const AssignedOrders = () => {
         <View style={styles.orderHeader}>
           <View style={styles.orderIdContainer}>
             <Package size={16} color="#1c1917" />
-            <Text style={styles.orderId}>#{item.id}</Text>
+            <Text style={styles.orderId}>{displayOrderId(item.id)}</Text>
           </View>
           <View style={styles.statusContainer}>
             <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>

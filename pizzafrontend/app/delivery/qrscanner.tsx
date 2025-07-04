@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,6 @@ import {
   RefreshControl
 } from 'react-native';
 import { 
-  ArrowLeft, 
   Share2, 
   RefreshCw, 
   Clock, 
@@ -28,6 +27,7 @@ import {
   DollarSign
 } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
+import { formatOrderId, displayOrderId } from '@/src/utils/orderUtils';
 import { RootState } from '../../redux/store';
 import store from '../../redux/store';
 import { useRouter } from 'expo-router';
@@ -90,11 +90,11 @@ interface EmptyPaymentsViewProps {
   refreshing: boolean;
 }
 
-const EmptyPaymentsView = ({ onRefresh, refreshing }: EmptyPaymentsViewProps) => {
+const EmptyPaymentsView = memo(({ onRefresh, refreshing }: EmptyPaymentsViewProps) => {
   const [pulseAnim] = useState(new Animated.Value(1));
   
   useEffect(() => {
-    Animated.loop(
+    const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
           toValue: 1.05,
@@ -107,8 +107,11 @@ const EmptyPaymentsView = ({ onRefresh, refreshing }: EmptyPaymentsViewProps) =>
           useNativeDriver: true
         })
       ])
-    ).start();
-  }, []);
+    );
+    animation.start();
+    
+    return () => animation.stop();
+  }, [pulseAnim]);
 
   return (
     <View style={styles.emptyContainer}>
@@ -154,9 +157,9 @@ const EmptyPaymentsView = ({ onRefresh, refreshing }: EmptyPaymentsViewProps) =>
       </View>
     </View>
   );
-};
+});
 
-const QRPaymentScreen = () => {
+const QRPaymentScreen = memo(() => {
   const router = useRouter();
   const { token, name, email, role, userId } = useSelector((state: RootState) => state.auth);
   const [loading, setLoading] = useState(true);
@@ -287,7 +290,7 @@ const QRPaymentScreen = () => {
 
     // Use QR code generator API with timestamp to ensure fresh QR on each refresh
     return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiLink)}&t=${lastRefresh}`;
-  }, [paymentDetails, lastRefresh, shopPaymentDetails]);
+  }, [paymentDetails.amount, paymentDetails.orderId, lastRefresh, shopPaymentDetails.upiId, shopPaymentDetails.merchantName, shopPaymentDetails.merchantCode]);
 
   // Fetch pending payment orders from API
   const fetchPendingPaymentOrders = useCallback(async () => {
@@ -333,13 +336,13 @@ const QRPaymentScreen = () => {
   }, [token, router]);
 
   // Handle order refresh
-  const handleOrdersRefresh = () => {
+  const handleOrdersRefresh = useCallback(() => {
     setRefreshing(true);
     fetchPendingPaymentOrders();
-  };
+  }, [fetchPendingPaymentOrders]);
 
   // Handle refresh QR code 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
 
     // Haptic feedback 
@@ -353,7 +356,7 @@ const QRPaymentScreen = () => {
       // Success feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }, 1000);
-  };
+  }, []);
 
   // Copy all payment details to clipboard
   const copyAllPaymentDetails = async () => {
@@ -363,7 +366,7 @@ const QRPaymentScreen = () => {
     const paymentDetailsText = `🍕 ${shopName}
 
 💰 Amount: ₹${paymentDetails.amount.toFixed(2)}
-🔢 Order ID: ${paymentDetails.orderId}
+🔢 Order ID: ${displayOrderId(paymentDetails.orderId)}
 
 📱 UPI ID: ${businessSettings.upiId}
 
@@ -398,7 +401,7 @@ Bank Name: ${businessSettings.bankDetails.bankName}`;
 Dear ${paymentDetails.customerName},
 
 Your order total: ₹${paymentDetails.amount.toFixed(2)}
-Order ID: ${paymentDetails.orderId}
+Order ID: ${displayOrderId(paymentDetails.orderId)}
 
 💳 Payment Options:
 
@@ -431,7 +434,7 @@ Thank you for your order! 🍕`;
 
   // Share payment details
   // Handle order selection from current orders
-  const selectOrder = (orderId: string, mongoId: string, amount: number, customerName: string) => {
+  const selectOrder = useCallback((orderId: string, mongoId: string, amount: number, customerName: string) => {
     setActiveOrderId(orderId);
     setPaymentDetails({
       amount,
@@ -442,7 +445,7 @@ Thank you for your order! 🍕`;
 
     // Haptic feedback when order selected
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  };
+  }, []);
 
   // Confirm payment
   const confirmPayment = async () => {
@@ -487,7 +490,7 @@ Thank you for your order! 🍕`;
           merchantName: shopPaymentDetails.merchantName,
           merchantCode: shopPaymentDetails.merchantCode || 'PIZZASHP001',
           upiReference: paymentDetails.orderId, // Using order ID as reference
-          notes: `Payment confirmed and delivery completed for order #${paymentDetails.orderId}`
+          notes: `Payment confirmed and delivery completed for order ${displayOrderId(paymentDetails.orderId)}`
         })
       });
 
@@ -542,6 +545,8 @@ Thank you for your order! 🍕`;
 
   // Socket integration for real-time updates
   useEffect(() => {
+    let cleanupFn: (() => void) | null = null;
+    
     const setupSocketListener = async () => {
       let socket = getSocket();
       
@@ -550,17 +555,13 @@ Thank you for your order! 🍕`;
       const currentToken = token || store.getState().auth.token;
       const currentRole = role || store.getState().auth.role;
       
-
-      
       // If we don't have userId, we can't proceed
       if (!currentUserId) {
-        console.error('❌ No userId available for socket setup in QR screen');
         return;
       }
       
       // Initialize or ensure socket connection
       if (!socket) {
-        console.log('Socket not found, attempting to initialize...');
         if (currentToken && currentUserId) {
           socket = initializeSocket(currentToken);
           if (socket) {
@@ -568,13 +569,11 @@ Thank you for your order! 🍕`;
           }
         }
       } else if (!socket.connected) {
-        console.log('Socket exists but not connected, reconnecting...');
         socket = ensureSocketConnection(currentToken);
         if (socket && currentUserId) {
           await joinSocketRooms(currentUserId, currentRole);
         }
       } else {
-        console.log('Socket already connected, ensuring rooms are joined...');
         if (currentUserId && currentRole) {
           await joinSocketRooms(currentUserId, currentRole);
         }
@@ -582,12 +581,8 @@ Thank you for your order! 🍕`;
 
       // Handler for new pending payment orders
       const handleNewPendingPayment = (orderData: any) => {
-        console.log('💰 New pending payment order received:', orderData);
-        
         // Check if this order is assigned to current delivery agent
         if (orderData.deliveryAgent && orderData.deliveryAgent.toString() === currentUserId) {
-          console.log('🎯 New pending payment is for current delivery agent');
-          
           // Add to pending payments list if it's not already there
           setPendingPaymentOrders(prevOrders => {
             const exists = prevOrders.find(order => order._id === orderData._id);
@@ -614,8 +609,6 @@ Thank you for your order! 🍕`;
 
       // Handler for payment completion (removes from pending list)
       const handlePaymentCompleted = (orderData: any) => {
-        console.log('✅ Payment completed:', orderData);
-        
         // Remove from pending payments list
         setPendingPaymentOrders(prevOrders => 
           prevOrders.filter(order => 
@@ -635,8 +628,6 @@ Thank you for your order! 🍕`;
 
       // Handler for order status updates
       const handleOrderStatusUpdate = (updateData: any) => {
-        console.log('📦 Order status updated in QR screen:', updateData);
-        
         // If order status becomes 'Delivered' or 'Cancelled', remove from pending payments
         if (updateData.status === 'Delivered' || updateData.status === 'Cancelled') {
           setPendingPaymentOrders(prevOrders => 
@@ -658,11 +649,9 @@ Thank you for your order! 🍕`;
 
       // Set up socket event listeners
       if (socket) {
-        console.log('Setting up QR payment screen socket listeners');
-        
         // Listen for new pending payments
         onSocketEvent('new_pending_payment', handleNewPendingPayment);
-        onSocketEvent('new_order_assigned', handleNewPendingPayment); // Also listen to new assignments
+        onSocketEvent('new_order_assigned', handleNewPendingPayment);
         
         // Listen for payment completions
         onSocketEvent('payment_completed', handlePaymentCompleted);
@@ -671,7 +660,6 @@ Thank you for your order! 🍕`;
         
         // Handle socket connection events
         socket.on('connect', () => {
-          console.log('✅ Socket connected in QR payment screen');
           const currentUserId = userId || store.getState().auth.userId;
           const currentRole = role || store.getState().auth.role;
           if (currentUserId) {
@@ -680,24 +668,20 @@ Thank you for your order! 🍕`;
         });
         
         socket.on('disconnect', () => {
-          console.log('❌ Socket disconnected in QR payment screen');
+          // Handle disconnect if needed
         });
 
         socket.on('reconnect', () => {
-          console.log('🔄 Socket reconnected in QR payment screen');
           const currentUserId = userId || store.getState().auth.userId;
           const currentRole = role || store.getState().auth.role;
           if (currentUserId) {
             joinSocketRooms(currentUserId, currentRole);
           }
         });
-      } else {
-        console.log('⚠️ Socket not available for QR payment screen');
       }
 
       // Return cleanup function
       return () => {
-        console.log('Cleaning up QR payment screen socket listeners');
         offSocketEvent('new_pending_payment', handleNewPendingPayment);
         offSocketEvent('new_order_assigned', handleNewPendingPayment);
         offSocketEvent('payment_completed', handlePaymentCompleted);
@@ -706,34 +690,39 @@ Thank you for your order! 🍕`;
       };
     };
 
-    // Set up socket and store cleanup function
-    let cleanup: (() => void) | null = null;
-    setupSocketListener().then(cleanupFn => {
-      cleanup = cleanupFn || null;
+    setupSocketListener().then(cleanup => {
+      cleanupFn = cleanup || null;
     });
 
     // Cleanup on unmount
     return () => {
-      if (cleanup) {
-        cleanup();
+      if (cleanupFn) {
+        cleanupFn();
       }
     };
-  }, [userId, token, role, paymentDetails._id, paymentDetails.orderId]);
+  }, [userId, token, role, paymentDetails._id, paymentDetails.orderId, showSuccessModal]);
 
-  // Handle go back
-  const handleGoBack = () => {
-    router.back();
-  };
+  // Memoize expensive values
+  const memoizedBusinessName = useMemo(() => 
+    businessSettings?.businessInfo?.name || businessSettings?.bankDetails.accountName || 'N/A',
+    [businessSettings?.businessInfo?.name, businessSettings?.bankDetails.accountName]
+  );
+  
+  const memoizedPaymentInstructions = useMemo(() => [
+    { id: 1, text: 'Ask customer to open any UPI app' },
+    { id: 2, text: 'Scan this QR code to make payment' },
+    { id: 3, text: 'Verify payment confirmation and press confirm' }
+  ], []);
 
   // Render a pending order item
-  const renderOrderItem = ({ item }: { item: PendingPaymentOrder }) => (
+  const renderOrderItem = useCallback(({ item }: { item: PendingPaymentOrder }) => (
     <TouchableOpacity
       key={item.id}
       style={styles.orderItem}
       onPress={() => selectOrder(item.id, item._id, item.amount, item.customerName)}
     >
       <View style={styles.orderItemLeft}>
-        <Text style={styles.orderIdText}>Order #{item.id}</Text>
+        <Text style={styles.orderIdText}>{displayOrderId(item.id)}</Text>
         <Text style={styles.customerNameText}>{item.customerName}</Text>
       </View>
       <View style={styles.orderAmountContainer}>
@@ -743,7 +732,7 @@ Thank you for your order! 🍕`;
         </View>
       </View>
     </TouchableOpacity>
-  );
+  ), [selectOrder]);
 
   // Show loading state while fetching business settings
   if (businessSettingsLoading) {
@@ -758,13 +747,11 @@ Thank you for your order! 🍕`;
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleGoBack} style={styles.backButton}>
-          <ArrowLeft size={24} color="#1c1917" />
-        </TouchableOpacity>
         <View>
           <Text style={styles.title}>Payment Collection</Text>
           <Text style={styles.subtitle}>
-            Scan QR to collect cash on delivery payments
+            {pendingPaymentOrders.length} pending {pendingPaymentOrders.length === 1 ? 'payment' : 'payments'}
+            {refreshing ? ' • Refreshing...' : ''}
           </Text>
         </View>
       </View>
@@ -801,14 +788,21 @@ Thank you for your order! 🍕`;
               {pendingPaymentOrders.length === 0 ? (
                 <EmptyPaymentsView onRefresh={handleOrdersRefresh} refreshing={refreshing} />
               ) : (
-                <View style={styles.selectOrderContainer}>
-                  <FlatList
-                    data={pendingPaymentOrders}
-                    renderItem={renderOrderItem}
-                    keyExtractor={(item) => item._id}
-                    scrollEnabled={false}
-                    style={styles.ordersList}
-                  />
+                <View style={styles.selectOrderContainer}>                <FlatList
+                  data={pendingPaymentOrders}
+                  renderItem={renderOrderItem}
+                  keyExtractor={(item) => item._id}
+                  scrollEnabled={false}
+                  style={styles.ordersList}
+                  removeClippedSubviews={true}
+                  maxToRenderPerBatch={10}
+                  updateCellsBatchingPeriod={50}
+                  windowSize={10}
+                  initialNumToRender={10}
+                  getItemLayout={(data, index) => (
+                    { length: 70, offset: 70 * index, index }
+                  )}
+                />
                 </View>
               )}
             </>
@@ -817,7 +811,7 @@ Thank you for your order! 🍕`;
               <View style={styles.orderInfoContainer}>
                 <Text style={styles.customerNameLarge}>{paymentDetails.customerName}</Text>
                 <View style={styles.orderDetailRow}>
-                  <Text style={styles.orderIdLarge}>Order #{paymentDetails.orderId}</Text>
+                  <Text style={styles.orderIdLarge}>{displayOrderId(paymentDetails.orderId)}</Text>
                   <Text style={styles.orderAmountLarge}>₹{paymentDetails.amount.toFixed(2)}</Text>
                 </View>
                 <TouchableOpacity
@@ -891,7 +885,7 @@ Thank you for your order! 🍕`;
                 
                 <View style={styles.paymentDetailRow}>
                   <Text style={styles.paymentDetailLabel}>Shop Name</Text>
-                  <Text style={styles.paymentDetailValue}>{businessSettings?.businessInfo?.name || businessSettings?.bankDetails.accountName || 'N/A'}</Text>
+                  <Text style={styles.paymentDetailValue}>{memoizedBusinessName}</Text>
                 </View>
 
                 <View style={styles.paymentDetailRow}>
@@ -901,7 +895,7 @@ Thank you for your order! 🍕`;
 
                 <View style={styles.paymentDetailRow}>
                   <Text style={styles.paymentDetailLabel}>Order ID</Text>
-                  <Text style={styles.paymentDetailValue}>{paymentDetails.orderId}</Text>
+                  <Text style={styles.paymentDetailValue}>{displayOrderId(paymentDetails.orderId)}</Text>
                 </View>
 
                 <View style={styles.paymentDetailRow}>
@@ -946,24 +940,14 @@ Thank you for your order! 🍕`;
                   <Text style={styles.instructionsTitle}>Payment Instructions</Text>
                 </View>
                 
-                <View style={styles.instructionItem}>
-                  <View style={styles.instructionNumber}>
-                    <Text style={styles.instructionNumberText}>1</Text>
+                {memoizedPaymentInstructions.map((instruction, index) => (
+                  <View key={instruction.id} style={styles.instructionItem}>
+                    <View style={styles.instructionNumber}>
+                      <Text style={styles.instructionNumberText}>{instruction.id}</Text>
+                    </View>
+                    <Text style={styles.instructionText}>{instruction.text}</Text>
                   </View>
-                  <Text style={styles.instructionText}>Ask customer to open any UPI app</Text>
-                </View>
-                <View style={styles.instructionItem}>
-                  <View style={styles.instructionNumber}>
-                    <Text style={styles.instructionNumberText}>2</Text>
-                  </View>
-                  <Text style={styles.instructionText}>Scan this QR code to make payment</Text>
-                </View>
-                <View style={styles.instructionItem}>
-                  <View style={styles.instructionNumber}>
-                    <Text style={styles.instructionNumberText}>3</Text>
-                  </View>
-                  <Text style={styles.instructionText}>Verify payment confirmation and press confirm</Text>
-                </View>
+                ))}
               </View>
 
               <View style={styles.actionButtonsContainer}>
@@ -1035,7 +1019,7 @@ Thank you for your order! 🍕`;
       />
     </SafeAreaView>
   );
-};
+});
 
 const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
@@ -1054,18 +1038,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
-  },
-  backButton: {
-    marginRight: 16,
+    zIndex: 10,
+    elevation: 2,
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#1c1917',
   },
   subtitle: {
     fontSize: 14,
-    color: '#636e72',
+    color: '#666',
     marginTop: 4,
   },
   contentContainer: {

@@ -15,6 +15,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { AntDesign } from '@expo/vector-icons';
 import { ShoppingBag, ChevronRight, Pizza, Flame, Trophy, Gift, Phone } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
@@ -555,7 +556,7 @@ function HomeScreen() {
                 style={styles.cartButton}
                 onPress={navigateToCart}
               >
-                <ShoppingBag size={20} color="#fff" />
+                <AntDesign name="shoppingcart" size={20} color="#fff" />
                 {cartItemCount > 0 ? (
                   <View style={styles.cartBadge}>
                     <Text style={styles.cartBadgeText}>{cartItemCount.toString()}</Text>
@@ -653,9 +654,9 @@ function HomeScreen() {
                         </View>
 
                         {/* Decorative elements */}
-                        <View style={styles.decorCircle1}></View>
-                        <View style={styles.decorCircle2}></View>
-                        <View style={styles.decorCircle3}></View>
+                        <View style={styles.decorCircle1} />
+                        <View style={styles.decorCircle2} />
+                        <View style={styles.decorCircle3} />
                       </LinearGradient>
                     </View>
                   </View>
@@ -794,17 +795,17 @@ function HomeScreen() {
             {businessProfileLoading ? (
               <View style={styles.storeInfoContent}>
                 <ActivityIndicator size="small" color="#FF9800" />
-                <Text style={{ color: '#888', marginTop: 8 }}>Loading business info...</Text>
+                <Text style={styles.loadingText}>Loading business info...</Text>
               </View>
             ) : businessProfileError ? (
               <View style={styles.storeInfoContent}>
-                <Text style={{ color: 'red' }}>{businessProfileError}</Text>
+                <Text style={styles.errorText}>{businessProfileError}</Text>
               </View>
             ) : businessProfile ? (
               <>
                 <View style={styles.storeInfoHeader}>
                   <Text style={styles.storeInfoTitle}>{businessProfile.name}</Text>
-                  <View style={[styles.storeInfoBadge, liveStatus?.isOpen ? null : { backgroundColor: '#F44336' }]}> 
+                  <View style={[styles.storeInfoBadge, liveStatus?.isOpen ? null : { backgroundColor: '#F44336' }]}>
                     <Text style={styles.storeInfoBadgeText}>
                       {liveStatus?.isOpen ? 'OPEN NOW' : 'CLOSED'}
                     </Text>

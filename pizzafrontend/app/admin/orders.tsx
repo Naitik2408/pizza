@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   TextInput,
   ScrollView,
@@ -12,7 +11,8 @@ import {
   Platform,
   RefreshControl,
   Modal,
-  Animated as RNAnimated
+  Animated as RNAnimated,
+  FlatList
 } from 'react-native';
 import { Filter, Search, X, ShoppingBag, AlertCircle, ChevronDown, Package, Bell } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
@@ -34,6 +34,7 @@ import Animated, {
 import orderAlertService from '../../src/utils/orderAlertService';
 import SystemLevelAlertService from '../../src/utils/systemLevelAlertService';
 import { ZomatoLikePizzaAlarm } from '../../src/utils/nativeAlarmService';
+import { formatOrderId, displayOrderId, isValidOrderId } from '@/src/utils/orderUtils';
 
 import {
   OrderCard,
@@ -43,6 +44,11 @@ import {
   FilterModal
 } from '@/components/features/admin';
 import { SuccessModal, ErrorModal, ConfirmationModal } from '../../src/components/modals';
+
+// Performance imports
+import { OrderList } from '@/src/components/common/VirtualList';
+import { useAuthStatus } from '@/src/hooks/usePerformance';
+import { OrderItemMemo } from '@/src/hoc/withMemo';
 
 // Define types (these should match the types in OrderDetailsModal.tsx)
 export interface AddOnOption {
@@ -346,6 +352,9 @@ const AdminOrders = () => {
 
   const { token, role } = useSelector((state: RootState) => state.auth);
 
+  // Memoized selectors for better performance
+  const authData = useMemo(() => ({ token, role }), [token, role]);
+
   // Modal states
   const [successModal, setSuccessModal] = useState<{visible: boolean, title: string, message: string}>({
     visible: false,
@@ -368,6 +377,40 @@ const AdminOrders = () => {
     message: '',
     onConfirm: () => {}
   });
+
+  // Toast notification state for subtle feedback
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info'>('success');
+  const [toastAnim] = useState(() => new RNAnimated.Value(-100));
+  const toastTimeoutRef = useRef<any>(null);
+
+  // Function to show toast notification
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    
+    setToastMessage(message);
+    setToastType(type);
+    
+    // Animate in
+    RNAnimated.timing(toastAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true
+    }).start();
+    
+    toastTimeoutRef.current = setTimeout(() => {
+      // Animate out
+      RNAnimated.timing(toastAnim, {
+        toValue: -100,
+        duration: 300,
+        useNativeDriver: true
+      }).start(() => {
+        setToastMessage(null);
+      });
+    }, 2500);
+  };
 
   // Animation refs
   const [notificationAnim] = useState(() => new RNAnimated.Value(-100));
@@ -421,6 +464,10 @@ const AdminOrders = () => {
       if (notificationTimeoutRef.current) {
         clearTimeout(notificationTimeoutRef.current);
       }
+      // Clear toast timeout
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
     };
   }, [token]);
 
@@ -435,9 +482,9 @@ const AdminOrders = () => {
       // Trigger haptic feedback for new order
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Format the incoming order to match our Order interface
+      // Format the incoming order to match our Order interface with consistent ID
       const newOrder: Order = {
-        id: data.orderNumber || data.id || String(data._id).slice(-6),
+        id: formatOrderId(data.orderNumber, data._id),
         _id: data._id,
         customer: data.customerName || data.customer || 'New customer',
         status: data.status || 'Pending',
@@ -474,7 +521,7 @@ const AdminOrders = () => {
       try {
         await ZomatoLikePizzaAlarm.setUrgentOrderAlarm({
           orderId: data._id,
-          orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
+          orderNumber: formatOrderId(data.orderNumber, data._id),
           customerName: data.customerName || data.customer || 'New customer',
           amount: data.amount || 0
         });
@@ -488,7 +535,7 @@ const AdminOrders = () => {
 
           await SystemLevelAlertService.sendEnhancedSystemAlert({
             orderId: data._id,
-            orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
+            orderNumber: formatOrderId(data.orderNumber, data._id),
             customerName: data.customerName || data.customer || 'New customer',
             amount: data.amount || 0
           });
@@ -499,7 +546,7 @@ const AdminOrders = () => {
           try {
             orderAlertService.playOrderAlert({
               orderId: data._id,
-              orderNumber: data.orderNumber || `#${data._id.slice(-6)}`,
+              orderNumber: formatOrderId(data.orderNumber, data._id),
               customerName: data.customerName || data.customer || 'New customer',
               amount: data.amount || 0
             });
@@ -644,8 +691,10 @@ const AdminOrders = () => {
     try {
       if (!token) return;
 
+      // Show modal immediately with loading state
+      setDetailsModalVisible(true);
       setLoadingOrderDetails(true);
-      setSelectedOrder(null);
+      // Don't clear selectedOrder - keep the basic data for immediate display
 
       const response = await fetch(`${API_URL}/api/orders/${orderId}`, {
         method: 'GET',
@@ -671,7 +720,7 @@ const AdminOrders = () => {
 
       // Format the order for display
       const formattedOrder: Order = {
-        id: data.orderNumber || data.id,
+        id: formatOrderId(data.orderNumber, data._id),
         _id: data._id,
         customer: data.customerName,
         status: data.status,
@@ -790,9 +839,11 @@ const AdminOrders = () => {
       const data: OrdersApiResponse = await response.json();
 
 
-      // Process orders to ensure they have all required fields
-      const processedOrders = data.orders.map(order => ({
+      // Process orders to ensure they have all required fields and consistent IDs
+      const processedOrders = data.orders.map((order: any) => ({
         ...order,
+        // Use consistent order ID formatting
+        id: formatOrderId(order.orderNumber, order._id),
         // Format dates nicely
         date: new Date(order.createdAt || Date.now()).toLocaleDateString(),
         time: new Date(order.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -898,22 +949,22 @@ const AdminOrders = () => {
         deliveryAgent: agentName
       } : null);
 
-      // Show success message
-      setSuccessModal({
-        visible: true,
-        title: 'Success',
-        message: `Order has been ${agentId ? 'assigned to' : 'unassigned from'} ${agentName}`
-      });
-
-      // Close modal after assignment
-      setAssignAgentModalVisible(false);
+      // Close modal with smooth transition and show subtle toast feedback
+      setTimeout(() => {
+        setAssignAgentModalVisible(false);
+        showToast(`Assigned to ${agentName}`, 'success');
+      }, 100);
+      
     } catch (err) {
       console.error('Error assigning delivery agent:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      // Only show error popup for critical failures
       setErrorModal({
         visible: true,
-        title: 'Error',
-        message: `Failed to assign delivery agent: ${errorMessage}`
+        title: 'Assignment Failed',
+        message: errorMessage.includes('network') || errorMessage.includes('server') 
+          ? 'Network error. Please check your connection and try again.' 
+          : 'Failed to assign delivery agent. Please try again.'
       });
     } finally {
       setIsProcessing(false);
@@ -976,23 +1027,24 @@ const AdminOrders = () => {
         ] : []
       } : null);
 
-      // Close modal after status update
-      setUpdateStatusModalVisible(false);
-
-      // Show success message
-      setSuccessModal({
-        visible: true,
-        title: 'Success',
-        message: `Order status updated to ${status}`
-      });
+      // Close modal with smooth transition and show subtle toast feedback
+      setTimeout(() => {
+        setUpdateStatusModalVisible(false);
+        showToast(`Status updated to ${status}`, 'success');
+      }, 100);
 
     } catch (err) {
       console.error('Error updating order status:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      // Only show error popup for critical failures
       setErrorModal({
         visible: true,
-        title: 'Error',
-        message: `Failed to update order status: ${errorMessage}`
+        title: 'Status Update Failed',
+        message: errorMessage.includes('permission') 
+          ? 'You don\'t have permission to update this order.' 
+          : errorMessage.includes('network') || errorMessage.includes('server')
+          ? 'Network error. Please check your connection and try again.'
+          : 'Failed to update order status. Please try again.'
       });
     } finally {
       setIsProcessing(false);
@@ -1050,23 +1102,29 @@ const AdminOrders = () => {
         ] : []
       } : null);
 
-      // Close modal after payment status update
-      setUpdatePaymentModalVisible(false);
+      // Close modal with smooth transition - only show success for critical payment updates
+      setTimeout(() => {
+        setUpdatePaymentModalVisible(false);
+      }, 100);
 
-      // Show success message
-      setSuccessModal({
-        visible: true,
-        title: 'Success',
-        message: `Payment status updated to ${paymentStatus}`
-      });
+      // Only show success popup for important payment status changes
+      if (paymentStatus === 'Completed' || paymentStatus === 'Failed' || paymentStatus === 'Refunded') {
+        setSuccessModal({
+          visible: true,
+          title: 'Payment Updated',
+          message: `Payment status updated to ${paymentStatus}`
+        });
+      }
 
     } catch (err) {
       console.error('Error updating payment status:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setErrorModal({
         visible: true,
-        title: 'Error',
-        message: `Failed to update payment status: ${errorMessage}`
+        title: 'Payment Update Failed',
+        message: errorMessage.includes('network') || errorMessage.includes('server')
+          ? 'Network error. Please check your connection and try again.'
+          : 'Failed to update payment status. Please try again.'
       });
     } finally {
       setIsProcessing(false);
@@ -1076,8 +1134,10 @@ const AdminOrders = () => {
   const applyFilters = (newFilters: OrderFilters) => {
     setFilters(newFilters);
     setCurrentPage(1);
-    fetchOrders(1);
     setFilterModalVisible(false);
+    // Show subtle feedback instead of loading state
+    showToast('Filters applied', 'info');
+    fetchOrders(1);
   };
 
   const resetFilters = () => {
@@ -1150,9 +1210,12 @@ const AdminOrders = () => {
     fetchOrders(1);
   }, [fetchOrders]);
 
+  // Preload delivery agents for faster modal opening
   useEffect(() => {
-    fetchDeliveryAgents();
-  }, [fetchDeliveryAgents]);
+    if (token) {
+      fetchDeliveryAgents();
+    }
+  }, [token, fetchDeliveryAgents]);
 
   // Modal state management
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
@@ -1172,7 +1235,18 @@ const AdminOrders = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Orange notification overlay removed - using system notifications only */}
+      {/* Toast Notification */}
+      {toastMessage && (
+        <RNAnimated.View style={[
+          styles.toastContainer,
+          {
+            backgroundColor: toastType === 'success' ? '#10B981' : toastType === 'error' ? '#EF4444' : '#3B82F6',
+            transform: [{ translateY: toastAnim }]
+          }
+        ]}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </RNAnimated.View>
+      )}
 
       {loading && !refreshing ? (
         <>
@@ -1245,10 +1319,10 @@ const AdminOrders = () => {
             </View>
           )}
 
-          {/* Orders list with infinite scroll */}
-          <FlatList
+          {/* Orders list with infinite scroll - Optimized */}
+          <FlatList<Order>
             data={orders}
-            renderItem={({ item, index }) => (
+            renderItem={({ item }: { item: Order }) => (
               <RNAnimated.View // Changed from Animated.View to RNAnimated.View
                 style={[
                   { transform: [{ scale: 1 }] } // Removed notificationVisible condition since using system notifications only
@@ -1257,7 +1331,8 @@ const AdminOrders = () => {
                 <OrderCard
                   order={item}
                   onPress={() => {
-                    // Use fetchOrderDetails to get detailed order info
+                    // Set basic order data immediately and show modal
+                    setSelectedOrder(item);
                     fetchOrderDetails(item._id);
                   }}
                   onUpdateStatus={() => {
@@ -1272,7 +1347,7 @@ const AdminOrders = () => {
                 />
               </RNAnimated.View>
             )}
-            keyExtractor={(item) => item._id}
+            keyExtractor={(item: Order) => item._id}
             contentContainerStyle={styles.ordersList}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#FF6B00"]} />
@@ -1280,6 +1355,16 @@ const AdminOrders = () => {
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.3}
             ListFooterComponent={renderFooter}
+            // Performance optimizations
+            initialNumToRender={10}
+            maxToRenderPerBatch={5}
+            windowSize={10}
+            removeClippedSubviews={true}
+            getItemLayout={(data: ArrayLike<Order> | null | undefined, index: number) => ({
+              length: 160, // Approximate order card height
+              offset: 160 * index,
+              index,
+            })}
             ListEmptyComponent={() => (
               <View style={styles.emptyListContainer}>
                 <ShoppingBag size={60} color="#E0E0E0" />
@@ -1315,15 +1400,24 @@ const AdminOrders = () => {
           onClose={() => setDetailsModalVisible(false)}
           onUpdateStatus={() => {
             setDetailsModalVisible(false);
-            setUpdateStatusModalVisible(true);
+            // Small delay to allow smooth transition
+            setTimeout(() => {
+              setUpdateStatusModalVisible(true);
+            }, 150);
           }}
           onAssignAgent={() => {
             setDetailsModalVisible(false);
-            setAssignAgentModalVisible(true);
+            // Small delay to allow smooth transition
+            setTimeout(() => {
+              setAssignAgentModalVisible(true);
+            }, 150);
           }}
           onUpdatePayment={() => {
             setDetailsModalVisible(false);
-            setUpdatePaymentModalVisible(true);
+            // Small delay to allow smooth transition
+            setTimeout(() => {
+              setUpdatePaymentModalVisible(true);
+            }, 150);
           }}
           getStatusColor={getStatusColor}
           getPaymentStatusColor={getPaymentStatusColor}
@@ -1381,33 +1475,39 @@ const AdminOrders = () => {
         />
       )}
 
-      {/* Success Modal */}
-      <SuccessModal
-        visible={successModal.visible}
-        onClose={() => setSuccessModal({ ...successModal, visible: false })}
-        title={successModal.title}
-        message={successModal.message}
-      />
+      {/* Success Modal - Only for critical operations */}
+      {successModal.visible && (
+        <SuccessModal
+          visible={successModal.visible}
+          onClose={() => setSuccessModal({ ...successModal, visible: false })}
+          title={successModal.title}
+          message={successModal.message}
+        />
+      )}
 
-      {/* Error Modal */}
-      <ErrorModal
-        visible={errorModal.visible}
-        onClose={() => setErrorModal({ ...errorModal, visible: false })}
-        title={errorModal.title}
-        message={errorModal.message}
-      />
+      {/* Error Modal - Only for failures that need user attention */}
+      {errorModal.visible && (
+        <ErrorModal
+          visible={errorModal.visible}
+          onClose={() => setErrorModal({ ...errorModal, visible: false })}
+          title={errorModal.title}
+          message={errorModal.message}
+        />
+      )}
 
-      {/* Confirmation Modal */}
-      <ConfirmationModal
-        visible={confirmationModal.visible}
-        onConfirm={() => {
-          confirmationModal.onConfirm();
-          setConfirmationModal({ ...confirmationModal, visible: false });
-        }}
-        onCancel={() => setConfirmationModal({ ...confirmationModal, visible: false })}
-        title={confirmationModal.title}
-        message={confirmationModal.message}
-      />
+      {/* Confirmation Modal - For destructive actions only */}
+      {confirmationModal.visible && (
+        <ConfirmationModal
+          visible={confirmationModal.visible}
+          onConfirm={() => {
+            confirmationModal.onConfirm();
+            setConfirmationModal({ ...confirmationModal, visible: false });
+          }}
+          onCancel={() => setConfirmationModal({ ...confirmationModal, visible: false })}
+          title={confirmationModal.title}
+          message={confirmationModal.message}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -1777,7 +1877,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
-  }
+  },
+  // Toast notification styles
+  toastContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 100 : 80,
+    left: 20,
+    right: 20,
+    padding: 12,
+    borderRadius: 8,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  toastText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
 });
 
 const modalStyles = StyleSheet.create({

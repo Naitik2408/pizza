@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ShoppingBag, Calendar, User, MapPin, DollarSign, Edit, Truck, Info } from 'lucide-react-native';
+import { displayOrderId } from '@/src/utils/orderUtils';
 
 interface OrderItem {
   name: string;
@@ -52,7 +53,7 @@ const OrderCard: React.FC<OrderCardProps> = ({
           <ShoppingBag size={20} color="#FF6B00" style={styles.orderIcon} />
           <View>
             <Text style={styles.orderCustomerName}>{order.customer}</Text>
-            <Text style={styles.orderIdText}>Order #{order.id}</Text>
+            <Text style={styles.orderIdText}>{displayOrderId(order.id)}</Text>
           </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(order.status) }]}>

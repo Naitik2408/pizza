@@ -304,8 +304,7 @@ export default function LoginScreen() {
                 disabled={isLoading}
               >
                 <Text style={styles.signupText}>
-                  <Text>Don't have an account? </Text>
-                  <Text style={styles.signupTextBold}>Sign Up</Text>
+                  Don't have an account? <Text style={styles.signupTextBold}>Sign Up</Text>
                 </Text>
               </TouchableOpacity>
             </View>

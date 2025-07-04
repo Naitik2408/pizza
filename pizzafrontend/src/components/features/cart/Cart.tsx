@@ -1,18 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Alert, Platform, TextInput, ActivityIndicator, Modal, ScrollView } from 'react-native';
 import { AntDesign, MaterialIcons, Entypo } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  selectCartItems,
   updateQuantity,
   removeFromCart,
   clearCart,
-  selectSubtotal,
-  selectDeliveryFee,
-  selectTaxAmount,
-  selectTotal,
   applyDiscount,
   removeDiscount,
   CartItem,
@@ -22,6 +17,20 @@ import { RootState } from '../../../../redux/store';
 import { API_URL } from '@/config';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getSocket, onSocketEvent, offSocketEvent } from '@/src/utils/socket';
+
+// Import optimized selectors and performance hooks
+import { 
+  selectCartSummary,
+  selectCartItems,
+  selectCartIsEmpty 
+} from '../../../../redux/selectors';
+import { 
+  useCartSummary 
+} from '@/src/hooks/usePerformance';
+import { 
+  withMemo, 
+  withPerformanceMonitoring 
+} from '@/src/hoc/withMemo';
 
 // Import checkout flow components
 import AddressSelection from './AddressSelection';
@@ -151,16 +160,22 @@ const Cart = () => {
     manualOverride: boolean;
   } | null>(null);
 
-  // Get cart data from Redux store
+  // Get cart data from optimized selectors
   const cartItems = useSelector(selectCartItems);
-  const subtotal = useSelector(selectSubtotal);
-  const deliveryFee = useSelector(selectDeliveryFee);
-  const tax = useSelector(selectTaxAmount);
-  const total = useSelector(selectTotal);
+  const isEmpty = useSelector(selectCartIsEmpty);
+  const cartSummary = useCartSummary(); // Optimized hook
+  
+  const { 
+    subtotal, 
+    deliveryFee, 
+    taxAmount, 
+    total, 
+    itemCount,
+    discountAmount 
+  } = cartSummary;
 
-  // Get discount info from Redux store
+  // Get discount info from Redux store (memoized)
   const appliedDiscount = useSelector((state: RootState) => state.cart.discount);
-  const discountAmount = useSelector((state: RootState) => state.cart.discountAmount || 0);
 
   const cartIsEmpty = cartItems.length === 0;
 
@@ -1058,7 +1073,7 @@ const Cart = () => {
               {isLoadingSettings ? (
                 <ActivityIndicator size="small" color="#666" />
               ) : (
-                <Text style={styles.summaryValue}>₹{tax.toFixed(2)}</Text>
+                <Text style={styles.summaryValue}>₹{taxAmount.toFixed(2)}</Text>
               )}
             </View>
 

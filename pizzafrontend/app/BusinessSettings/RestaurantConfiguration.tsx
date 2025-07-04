@@ -537,7 +537,9 @@ export default function BusinessSettings() {
   const renderBusinessInfoSection = () => (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
-        <View style={[styles.iconContainer, { backgroundColor: '#F59E420F' }]}> <Building2 size={20} color="#F59E42" /> </View>
+        <View style={[styles.iconContainer, { backgroundColor: '#F59E420F' }]}>
+          <Building2 size={20} color="#F59E42" />
+        </View>
         <Text style={styles.sectionTitle}>Business Info</Text>
       </View>
       {businessInfoLoading ? (

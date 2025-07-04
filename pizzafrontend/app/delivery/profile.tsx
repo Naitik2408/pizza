@@ -6,7 +6,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/store';
 import { logout } from '../../redux/slices/authSlice';
 import { API_URL } from '@/config';
-import { io, Socket } from 'socket.io-client';
+import { getSocket, onSocketEvent, offSocketEvent } from '@/src/utils/socket';
 
 // Define the delivery partner details interface
 interface DeliveryDetails {
@@ -63,37 +63,25 @@ export default function DeliveryProfile() {
   const [isOnline, setIsOnline] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [socket, setSocket] = useState<Socket | null>(null);
 
   // Setup socket connection for real-time updates
   useEffect(() => {
     if (!token) return;
     
-    console.log("Setting up socket connection");
+    const socket = getSocket();
     
-    const newSocket = io(API_URL, {
-      transports: ['websocket'],
-      auth: { token }
-    });
-    
-    setSocket(newSocket);
-    
-    newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
-    });
-    
-    newSocket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
+    // Listen for delivery status updates
+    onSocketEvent('deliveryStatusUpdated', (data: any) => {
+      if (data.deliveryId === userId) {
+        setDeliveryDetails(data.details);
+      }
     });
     
     // Clean up on unmount
     return () => {
-      if (newSocket) {
-        newSocket.disconnect();
-      }
-      setSocket(null);
+      offSocketEvent('deliveryStatusUpdated');
     };
-  }, [token]);
+  }, [token, userId]);
 
   // Fetch delivery partner status on component mount
   useEffect(() => {
@@ -173,6 +161,7 @@ export default function DeliveryProfile() {
       }
 
       // Emit status update via socket for real-time reflection in admin panel
+      const socket = getSocket();
       if (socket && userId) {
         socket.emit('delivery_status_change', {
           _id: userId,
@@ -230,6 +219,7 @@ export default function DeliveryProfile() {
           setIsOnline(false);
           
           // Send offline status to socket
+          const socket = getSocket();
           if (socket && userId) {
             socket.emit('delivery_status_change', {
               _id: userId,

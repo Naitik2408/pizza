@@ -2,6 +2,7 @@ import React, {useEffect} from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform, ActivityIndicator } from 'react-native';
 import { User, X, Edit, Truck, ShoppingBag, DollarSign } from 'lucide-react-native';
 import { Order, OrderItem, AddOnOption } from '../../../../app/admin/orders';
+import { displayOrderId } from '@/src/utils/orderUtils';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -358,7 +359,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   <Text style={styles.sectionTitle}>Order Information</Text>
                   <View style={styles.detailItem}>
                     <Text style={styles.detailLabel}>Order ID:</Text>
-                    <Text style={styles.detailValue}>#{order.id}</Text>
+                    <Text style={styles.detailValue}>{displayOrderId(order.id)}</Text>
                   </View>
                   <View style={styles.detailItem}>
                     <Text style={styles.detailLabel}>Date & Time:</Text>

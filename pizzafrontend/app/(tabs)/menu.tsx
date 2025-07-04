@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { addToCart, selectCartItemCount, selectCartItems } from '../../redux/slices/cartSlice';
+
+// Performance optimizations
+import { useCartStatus } from '@/src/hooks/usePerformance';
+import { MenuItemMemo } from '@/src/hoc/withMemo';
+
 import {
   View,
   Text,
@@ -163,7 +168,9 @@ const MenuScreen = () => {
   } | null>(null);
 
   const dispatch = useDispatch();
-  const cartItemCount = useSelector(selectCartItemCount);
+  // Optimized cart status hook
+  const cartStatus = useCartStatus();
+  const cartItemCount = cartStatus.itemCount;
   const cartItems = useSelector(selectCartItems);
   const router = useRouter();
 
@@ -866,9 +873,7 @@ const MenuScreen = () => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity>
-          <AntDesign name="arrowleft" size={24} color="#1F2937" />
-        </TouchableOpacity>
+        <View style={styles.headerLeft} />
         <Text style={styles.title}>Menu</Text>
         <TouchableOpacity
           onPress={() => router.push('../cart')}
@@ -1220,11 +1225,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 15,
+    paddingTop: 45,
+    paddingBottom: 10,
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
+  },
+  headerLeft: {
+    width: 24,
+    height: 24,
   },
   title: {
     fontSize: 22,

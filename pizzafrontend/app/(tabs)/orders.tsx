@@ -13,9 +13,11 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSelector } from 'react-redux';
+import { AntDesign } from '@expo/vector-icons';
 import { MapPin, Clock, ChevronDown, ArrowLeft, AlertCircle, LogIn, ShoppingBag } from 'lucide-react-native';
 import { API_URL } from '@/config';
 import { RootState } from '../../redux/store';
+import { selectCartItemCount } from '../../redux/slices/cartSlice';
 import { getSocket, onSocketEvent, offSocketEvent } from '@/src/utils/socket';
 
 // Helper functions for avatar generation
@@ -133,6 +135,7 @@ interface Order {
 export default function OrdersScreen() {
   const router = useRouter();
   const { token, isGuest } = useSelector((state: RootState) => state.auth);
+  const cartItemCount = useSelector(selectCartItemCount);
 
   const [activeTab, setActiveTab] = useState('current');
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
@@ -921,11 +924,19 @@ export default function OrdersScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <ArrowLeft size={24} color="#000" />
-        </TouchableOpacity>
+        <View style={styles.headerLeft} />
         <Text style={styles.title}>My Orders</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity
+          onPress={() => router.push('../cart')}
+          style={styles.cartIconContainer}
+        >
+          <AntDesign name="shoppingcart" size={24} color="#1F2937" />
+          {cartItemCount > 0 && (
+            <View style={styles.cartBadge}>
+              <Text style={styles.cartBadgeText}>{cartItemCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {isGuest ? (
@@ -984,22 +995,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 50,
-    paddingBottom: 20,
+    paddingTop: 45,
+    paddingBottom: 10,
     backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
   },
-  backButton: {
-    padding: 8,
+  headerLeft: {
+    width: 24,
+    height: 24,
+  },
+  headerRight: {
+    width: 24,
+    height: 24,
   },
   title: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
+    fontWeight: 'bold',
+    color: '#1F2937',
   },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
     paddingHorizontal: 20,
+    paddingTop: 15,
     paddingBottom: 15,
   },
   tab: {
@@ -1491,5 +1510,25 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
     opacity: 0.7,
+  },
+  cartIconContainer: {
+    position: 'relative',
+    padding: 5,
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#FF6B00',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cartBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });

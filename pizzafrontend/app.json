@@ -8,9 +8,15 @@
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.naitik2408.boltexponativewind"
+      "bundleIdentifier": "com.naitik2408.boltexponativewind",
+      "icon": "./assets/images/logo.png"
     },
     "web": {
       "bundler": "metro",
@@ -81,9 +87,7 @@
       ],
       [
         "./plugins/withFirebaseMessaging.js"
-      ],
-      "expo-web-browser",
-      "expo-audio"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -99,6 +103,11 @@
     "android": {
       "package": "com.naitik2408.boltexponativewind",
       "googleServicesFile": "./google-services.json",
+      "icon": "./assets/images/logo.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",

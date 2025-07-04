@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, ScrollView, Alert } from 'react-native';
 import { X, ShoppingBag, Check, User, Wifi, WifiOff, Clock, Info, RefreshCw } from 'lucide-react-native';
 import { API_URL } from '@/config';
-import { io, Socket } from 'socket.io-client';
+import { getSocket, onSocketEvent, offSocketEvent } from '@/src/utils/socket';
 
 // Updated to match your User model structure with correct path to isOnline
 interface DeliveryAgent {
