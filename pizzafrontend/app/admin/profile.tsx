@@ -145,7 +145,7 @@ export default function AdminProfile() {
 
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => router.push('../BusinessSettings/BusinessSettings')}
+            onPress={() => router.push('../BusinessSettings/RestaurantConfiguration')}
           >
             <View style={[styles.iconContainer, { backgroundColor: '#0EA5E920' }]}>
               <Settings size={20} color="#0EA5E9" />

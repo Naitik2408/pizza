@@ -7,7 +7,6 @@ import {
   Image,
   ScrollView,
   ActivityIndicator,
-  Alert,
   Share,
   Dimensions,
   Linking,
@@ -30,11 +29,14 @@ import {
 } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
+import store from '../../redux/store';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { API_URL } from '@/config';
+import { getSocket, initializeSocket, joinSocketRooms, onSocketEvent, offSocketEvent, isSocketConnected, ensureSocketConnection } from '@/src/utils/socket';
+import { ErrorModal, SuccessModal, ConfirmationModal } from '../../src/components/modals';
 
 // Define shop owner payment details interface
 interface PaymentDetails {
@@ -53,10 +55,16 @@ interface BusinessSettings {
     ifscCode: string;
     bankName: string;
   };
+  businessInfo: {
+    name: string;
+    phone: string;
+    email: string;
+    address: string;
+  };
   deliveryCharges: {
-    baseCharge: number;
-    perKmCharge: number;
+    fixedCharge: number;
     freeDeliveryThreshold: number;
+    applyToAllOrders: boolean;
   };
   taxSettings: {
     gstPercentage: number;
@@ -71,6 +79,7 @@ interface PendingPaymentOrder {
   _id: string;
   amount: number;
   customerName: string;
+  customerPhone?: string;
   date?: string;
   time?: string;
 }
@@ -149,13 +158,70 @@ const EmptyPaymentsView = ({ onRefresh, refreshing }: EmptyPaymentsViewProps) =>
 
 const QRPaymentScreen = () => {
   const router = useRouter();
-  const { token, name, email } = useSelector((state: RootState) => state.auth);
+  const { token, name, email, role, userId } = useSelector((state: RootState) => state.auth);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(Date.now());
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [pendingPaymentOrders, setPendingPaymentOrders] = useState<PendingPaymentOrder[]>([]);
   const [businessSettingsLoading, setBusinessSettingsLoading] = useState(true);
+
+  // Modal states
+  const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
+  const [successModal, setSuccessModal] = useState({ visible: false, title: '', message: '' });
+  const [confirmationModal, setConfirmationModal] = useState({ 
+    visible: false, 
+    title: '', 
+    message: '', 
+    onConfirm: () => {},
+    confirmText: 'Confirm',
+    confirmColor: '#F44336'
+  });
+
+  // Modal helper functions
+  const showErrorModal = (title: string, message: string) => {
+    setErrorModal({ visible: true, title, message });
+  };
+
+  const showSuccessModal = (title: string, message: string) => {
+    setSuccessModal({ visible: true, title, message });
+  };
+
+  const showConfirmationModal = (
+    title: string, 
+    message: string, 
+    onConfirm: () => void, 
+    confirmText = 'Confirm',
+    confirmColor = '#F44336'
+  ) => {
+    setConfirmationModal({ 
+      visible: true, 
+      title, 
+      message, 
+      onConfirm, 
+      confirmText,
+      confirmColor 
+    });
+  };
+
+  const closeErrorModal = () => {
+    setErrorModal({ visible: false, title: '', message: '' });
+  };
+
+  const closeSuccessModal = () => {
+    setSuccessModal({ visible: false, title: '', message: '' });
+  };
+
+  const closeConfirmationModal = () => {
+    setConfirmationModal({ 
+      visible: false, 
+      title: '', 
+      message: '', 
+      onConfirm: () => {},
+      confirmText: 'Confirm',
+      confirmColor: '#F44336'
+    });
+  };
 
   // Business settings state
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null);
@@ -201,7 +267,7 @@ const QRPaymentScreen = () => {
       // Update shop payment details based on fetched settings
       setShopPaymentDetails({
         upiId: data.upiId,
-        merchantName: data.bankDetails.accountName,
+        merchantName: data.businessInfo?.name || data.bankDetails.accountName,
         merchantCode: 'PIZZASHP001', // You might want to store this in the business settings too
         paymentLink: 'https://pay.pizzashop.com/pay' // This could also be stored in business settings
       });
@@ -259,7 +325,7 @@ const QRPaymentScreen = () => {
 
     } catch (error) {
       console.error('Error fetching pending payment orders:', error);
-      Alert.alert('Error', 'Failed to load orders. Please try again.');
+      showErrorModal('Error', 'Failed to load orders. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -289,44 +355,81 @@ const QRPaymentScreen = () => {
     }, 1000);
   };
 
-  // Copy UPI ID to clipboard
-  const copyUpiId = async () => {
-    await Clipboard.setStringAsync(shopPaymentDetails.upiId);
+  // Copy all payment details to clipboard
+  const copyAllPaymentDetails = async () => {
+    if (!businessSettings) return;
+
+    const shopName = businessSettings.businessInfo?.name || businessSettings.bankDetails.accountName;
+    const paymentDetailsText = `🍕 ${shopName}
+
+💰 Amount: ₹${paymentDetails.amount.toFixed(2)}
+🔢 Order ID: ${paymentDetails.orderId}
+
+📱 UPI ID: ${businessSettings.upiId}
+
+🏦 Bank Details:
+Account Name: ${businessSettings.bankDetails.accountName}
+Account Number: ${businessSettings.bankDetails.accountNumber}
+IFSC Code: ${businessSettings.bankDetails.ifscCode}
+Bank Name: ${businessSettings.bankDetails.bankName}`;
+
+    await Clipboard.setStringAsync(paymentDetailsText);
 
     // Haptic feedback when copied
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    Alert.alert('Copied', 'UPI ID copied to clipboard');
+    showSuccessModal('Copied', 'All payment details copied to clipboard');
+  };
+
+  // Share payment details via WhatsApp
+  const sharePaymentDetailsViaWhatsApp = async () => {
+    if (!businessSettings) return;
+
+    const currentOrder = pendingPaymentOrders.find(order => order._id === paymentDetails._id);
+    const customerPhone = currentOrder?.customerPhone || businessSettings.businessInfo.phone;
+
+    if (!customerPhone) {
+      showErrorModal('Error', 'Customer phone number not available');
+      return;
+    }
+
+    const paymentDetailsText = `🍕 Payment Details for ${businessSettings.businessInfo.name || businessSettings.bankDetails.accountName}
+
+Dear ${paymentDetails.customerName},
+
+Your order total: ₹${paymentDetails.amount.toFixed(2)}
+Order ID: ${paymentDetails.orderId}
+
+💳 Payment Options:
+
+📱 UPI ID: ${businessSettings.upiId}
+
+🏦 Bank Transfer:
+Account Name: ${businessSettings.bankDetails.accountName}
+Account Number: ${businessSettings.bankDetails.accountNumber}
+IFSC Code: ${businessSettings.bankDetails.ifscCode}
+Bank Name: ${businessSettings.bankDetails.bankName}
+
+Please complete the payment and share the transaction screenshot with us.
+
+Thank you for your order! 🍕`;
+
+    const whatsappUrl = `whatsapp://send?phone=${customerPhone.replace(/\s/g, '')}&text=${encodeURIComponent(paymentDetailsText)}`;
+
+    try {
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        showErrorModal('Error', 'WhatsApp not installed on device');
+      }
+    } catch (error) {
+      console.error('Error opening WhatsApp:', error);
+      showErrorModal('Error', 'Could not open WhatsApp');
+    }
   };
 
   // Share payment details
-  const sharePaymentDetails = async () => {
-    try {
-      await Share.share({
-        message: `Payment for ${shopPaymentDetails.merchantName} 🍕\n\nAmount: ₹${paymentDetails.amount.toFixed(2)}\nUPI ID: ${shopPaymentDetails.upiId}\nReference: ${paymentDetails.orderId}\nPayment Link: ${shopPaymentDetails.paymentLink || ''}`,
-        title: `${shopPaymentDetails.merchantName} Payment`
-      });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to share payment details');
-    }
-  };
-
-  // Open UPI app directly (if supported by device)
-  const openUpiApp = async () => {
-    try {
-      const upiUrl = `upi://pay?pa=${shopPaymentDetails.upiId}&pn=${encodeURIComponent(shopPaymentDetails.merchantName)}&am=${paymentDetails.amount.toFixed(2)}&cu=INR&tn=${paymentDetails.orderId}`;
-
-      const canOpen = await Linking.canOpenURL(upiUrl);
-      if (canOpen) {
-        await Linking.openURL(upiUrl);
-      } else {
-        Alert.alert('Error', 'No UPI app found on device');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Could not open UPI app');
-    }
-  };
-
   // Handle order selection from current orders
   const selectOrder = (orderId: string, mongoId: string, amount: number, customerName: string) => {
     setActiveOrderId(orderId);
@@ -344,7 +447,7 @@ const QRPaymentScreen = () => {
   // Confirm payment
   const confirmPayment = async () => {
     if (!paymentDetails._id) {
-      Alert.alert('Error', 'Invalid order selected');
+      showErrorModal('Error', 'Invalid order selected');
       return;
     }
 
@@ -395,11 +498,25 @@ const QRPaymentScreen = () => {
         console.warn('Payment confirmed but transaction record failed to create');
       }
 
+      // Emit socket event for real-time updates
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('orderStatusUpdated', {
+          orderId: paymentDetails._id,
+          status: 'Delivered',
+          paymentStatus: 'Completed',
+          updatedBy: 'delivery',
+          deliveryAgent: name,
+          timestamp: new Date().toISOString()
+        });
+        console.log('📡 Emitted orderStatusUpdated event for payment completion');
+      }
+
       // Success feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       // Show success and reset
-      Alert.alert('Success', 'Payment confirmed and delivery completed!');
+      showSuccessModal('Success', 'Payment confirmed and delivery completed!');
 
       // Reset active order and refresh list
       setActiveOrderId(null);
@@ -407,7 +524,7 @@ const QRPaymentScreen = () => {
 
     } catch (error) {
       console.error('Error confirming payment:', error);
-      Alert.alert('Error', 'Failed to confirm payment. Please try again.');
+      showErrorModal('Error', 'Failed to confirm payment. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -422,6 +539,192 @@ const QRPaymentScreen = () => {
     
     loadInitialData();
   }, [fetchBusinessSettings, fetchPendingPaymentOrders]);
+
+  // Socket integration for real-time updates
+  useEffect(() => {
+    const setupSocketListener = async () => {
+      let socket = getSocket();
+      
+      // Get current auth state
+      const currentUserId = userId || store.getState().auth.userId;
+      const currentToken = token || store.getState().auth.token;
+      const currentRole = role || store.getState().auth.role;
+      
+      console.log('🔌 Setting up socket for QR payment screen:', { 
+        userId: currentUserId, 
+        role: currentRole,
+        hasToken: !!currentToken,
+        socketExists: !!socket,
+        socketConnected: socket?.connected
+      });
+      
+      // If we don't have userId, we can't proceed
+      if (!currentUserId) {
+        console.error('❌ No userId available for socket setup in QR screen');
+        return;
+      }
+      
+      // Initialize or ensure socket connection
+      if (!socket) {
+        console.log('Socket not found, attempting to initialize...');
+        if (currentToken && currentUserId) {
+          socket = initializeSocket(currentToken);
+          if (socket) {
+            await joinSocketRooms(currentUserId, currentRole);
+          }
+        }
+      } else if (!socket.connected) {
+        console.log('Socket exists but not connected, reconnecting...');
+        socket = ensureSocketConnection(currentToken);
+        if (socket && currentUserId) {
+          await joinSocketRooms(currentUserId, currentRole);
+        }
+      } else {
+        console.log('Socket already connected, ensuring rooms are joined...');
+        if (currentUserId && currentRole) {
+          await joinSocketRooms(currentUserId, currentRole);
+        }
+      }
+
+      // Handler for new pending payment orders
+      const handleNewPendingPayment = (orderData: any) => {
+        console.log('💰 New pending payment order received:', orderData);
+        
+        // Check if this order is assigned to current delivery agent
+        if (orderData.deliveryAgent && orderData.deliveryAgent.toString() === currentUserId) {
+          console.log('🎯 New pending payment is for current delivery agent');
+          
+          // Add to pending payments list if it's not already there
+          setPendingPaymentOrders(prevOrders => {
+            const exists = prevOrders.find(order => order._id === orderData._id);
+            if (!exists && orderData.paymentMethod === 'Cash on Delivery' && orderData.paymentStatus === 'Pending') {
+              const newOrder: PendingPaymentOrder = {
+                id: orderData.id || orderData._id,
+                _id: orderData._id,
+                amount: orderData.amount || orderData.totalPrice || 0,
+                customerName: orderData.customerName || orderData.customer?.name || 'Customer'
+              };
+              return [...prevOrders, newOrder];
+            }
+            return prevOrders;
+          });
+          
+          // Show notification
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          showSuccessModal(
+            '💰 New Payment Pending',
+            `Order ${orderData.orderNumber || orderData.id} requires payment collection.`
+          );
+        }
+      };
+
+      // Handler for payment completion (removes from pending list)
+      const handlePaymentCompleted = (orderData: any) => {
+        console.log('✅ Payment completed:', orderData);
+        
+        // Remove from pending payments list
+        setPendingPaymentOrders(prevOrders => 
+          prevOrders.filter(order => 
+            order.id !== orderData.orderNumber && 
+            order._id !== orderData._id &&
+            order._id !== orderData.orderId
+          )
+        );
+        
+        // Reset active order if it was the one that got completed
+        if (paymentDetails._id === orderData._id || 
+            paymentDetails._id === orderData.orderId ||
+            paymentDetails.orderId === orderData.orderNumber) {
+          setActiveOrderId(null);
+        }
+      };
+
+      // Handler for order status updates
+      const handleOrderStatusUpdate = (updateData: any) => {
+        console.log('📦 Order status updated in QR screen:', updateData);
+        
+        // If order status becomes 'Delivered' or 'Cancelled', remove from pending payments
+        if (updateData.status === 'Delivered' || updateData.status === 'Cancelled') {
+          setPendingPaymentOrders(prevOrders => 
+            prevOrders.filter(order => 
+              order.id !== updateData.orderNumber && 
+              order._id !== updateData._id &&
+              order._id !== updateData.orderId
+            )
+          );
+          
+          // Reset active order if it matches
+          if (paymentDetails._id === updateData._id || 
+              paymentDetails._id === updateData.orderId ||
+              paymentDetails.orderId === updateData.orderNumber) {
+            setActiveOrderId(null);
+          }
+        }
+      };
+
+      // Set up socket event listeners
+      if (socket) {
+        console.log('Setting up QR payment screen socket listeners');
+        
+        // Listen for new pending payments
+        onSocketEvent('new_pending_payment', handleNewPendingPayment);
+        onSocketEvent('new_order_assigned', handleNewPendingPayment); // Also listen to new assignments
+        
+        // Listen for payment completions
+        onSocketEvent('payment_completed', handlePaymentCompleted);
+        onSocketEvent('orderStatusUpdated', handleOrderStatusUpdate);
+        onSocketEvent('assigned_order_update', handleOrderStatusUpdate);
+        
+        // Handle socket connection events
+        socket.on('connect', () => {
+          console.log('✅ Socket connected in QR payment screen');
+          const currentUserId = userId || store.getState().auth.userId;
+          const currentRole = role || store.getState().auth.role;
+          if (currentUserId) {
+            joinSocketRooms(currentUserId, currentRole);
+          }
+        });
+        
+        socket.on('disconnect', () => {
+          console.log('❌ Socket disconnected in QR payment screen');
+        });
+
+        socket.on('reconnect', () => {
+          console.log('🔄 Socket reconnected in QR payment screen');
+          const currentUserId = userId || store.getState().auth.userId;
+          const currentRole = role || store.getState().auth.role;
+          if (currentUserId) {
+            joinSocketRooms(currentUserId, currentRole);
+          }
+        });
+      } else {
+        console.log('⚠️ Socket not available for QR payment screen');
+      }
+
+      // Return cleanup function
+      return () => {
+        console.log('Cleaning up QR payment screen socket listeners');
+        offSocketEvent('new_pending_payment', handleNewPendingPayment);
+        offSocketEvent('new_order_assigned', handleNewPendingPayment);
+        offSocketEvent('payment_completed', handlePaymentCompleted);
+        offSocketEvent('orderStatusUpdated', handleOrderStatusUpdate);
+        offSocketEvent('assigned_order_update', handleOrderStatusUpdate);
+      };
+    };
+
+    // Set up socket and store cleanup function
+    let cleanup: (() => void) | null = null;
+    setupSocketListener().then(cleanupFn => {
+      cleanup = cleanupFn || null;
+    });
+
+    // Cleanup on unmount
+    return () => {
+      if (cleanup) {
+        cleanup();
+      }
+    };
+  }, [userId, token, role, paymentDetails._id, paymentDetails.orderId]);
 
   // Handle go back
   const handleGoBack = () => {
@@ -583,26 +886,18 @@ const QRPaymentScreen = () => {
                 <View style={styles.paymentDetailHeader}>
                   <FileText size={18} color="#1c1917" />
                   <Text style={styles.paymentDetailHeaderText}>Payment Details</Text>
+                  <TouchableOpacity 
+                    style={styles.copyAllButton} 
+                    onPress={copyAllPaymentDetails}
+                  >
+                    <Copy size={14} color="#FFFFFF" />
+                    <Text style={styles.copyAllButtonText}>Copy All</Text>
+                  </TouchableOpacity>
                 </View>
                 
                 <View style={styles.paymentDetailRow}>
                   <Text style={styles.paymentDetailLabel}>Shop Name</Text>
-                  <Text style={styles.paymentDetailValue}>{shopPaymentDetails.merchantName}</Text>
-                </View>
-
-                <View style={styles.paymentDetailRow}>
-                  <Text style={styles.paymentDetailLabel}>UPI ID</Text>
-                  <View style={styles.paymentDetailValueContainer}>
-                    <Text style={styles.paymentDetailValue} numberOfLines={1} ellipsizeMode="middle">
-                      {shopPaymentDetails.upiId}
-                    </Text>
-                    <TouchableOpacity 
-                      style={styles.copyButton} 
-                      onPress={copyUpiId}
-                    >
-                      <Copy size={12} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
+                  <Text style={styles.paymentDetailValue}>{businessSettings?.businessInfo?.name || businessSettings?.bankDetails.accountName || 'N/A'}</Text>
                 </View>
 
                 <View style={styles.paymentDetailRow}>
@@ -611,16 +906,43 @@ const QRPaymentScreen = () => {
                 </View>
 
                 <View style={styles.paymentDetailRow}>
-                  <Text style={styles.paymentDetailLabel}>Reference</Text>
+                  <Text style={styles.paymentDetailLabel}>Order ID</Text>
                   <Text style={styles.paymentDetailValue}>{paymentDetails.orderId}</Text>
                 </View>
 
+                <View style={styles.paymentDetailRow}>
+                  <Text style={styles.paymentDetailLabel}>UPI ID</Text>
+                  <Text style={styles.paymentDetailValue} numberOfLines={1} ellipsizeMode="middle">
+                    {businessSettings?.upiId || 'N/A'}
+                  </Text>
+                </View>
+
+                <View style={styles.paymentDetailRow}>
+                  <Text style={styles.paymentDetailLabel}>Account Name</Text>
+                  <Text style={styles.paymentDetailValue}>{businessSettings?.bankDetails.accountName || 'N/A'}</Text>
+                </View>
+
+                <View style={styles.paymentDetailRow}>
+                  <Text style={styles.paymentDetailLabel}>Account Number</Text>
+                  <Text style={styles.paymentDetailValue}>{businessSettings?.bankDetails.accountNumber || 'N/A'}</Text>
+                </View>
+
+                <View style={styles.paymentDetailRow}>
+                  <Text style={styles.paymentDetailLabel}>IFSC Code</Text>
+                  <Text style={styles.paymentDetailValue}>{businessSettings?.bankDetails.ifscCode || 'N/A'}</Text>
+                </View>
+
+                <View style={styles.paymentDetailRow}>
+                  <Text style={styles.paymentDetailLabel}>Bank Name</Text>
+                  <Text style={styles.paymentDetailValue}>{businessSettings?.bankDetails.bankName || 'N/A'}</Text>
+                </View>
+
                 <TouchableOpacity
-                  style={styles.upiAppButton}
-                  onPress={openUpiApp}
+                  style={styles.whatsappShareButton}
+                  onPress={sharePaymentDetailsViaWhatsApp}
                 >
-                  <ExternalLink size={18} color="#FFFFFF" />
-                  <Text style={styles.upiAppButtonText}>Open in UPI App</Text>
+                  <Share2 size={18} color="#FFFFFF" />
+                  <Text style={styles.whatsappShareButtonText}>Share via WhatsApp</Text>
                 </TouchableOpacity>
               </View>
 
@@ -652,29 +974,17 @@ const QRPaymentScreen = () => {
 
               <View style={styles.actionButtonsContainer}>
                 <TouchableOpacity
-                  style={[styles.actionButton, styles.shareButton]}
-                  onPress={sharePaymentDetails}
-                >
-                  <Share2 size={20} color="#FFFFFF" />
-                  <Text style={styles.actionButtonText}>Share Payment Details</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
                   style={[styles.actionButton, styles.confirmButton]}
                   onPress={() => {
-                    Alert.alert(
+                    showConfirmationModal(
                       'Confirm Payment',
                       'Has the customer completed the payment?',
-                      [
-                        {
-                          text: 'Cancel',
-                          style: 'cancel'
-                        },
-                        {
-                          text: 'Confirm',
-                          onPress: confirmPayment
-                        }
-                      ]
+                      () => {
+                        closeConfirmationModal();
+                        confirmPayment();
+                      },
+                      'Confirm',
+                      '#2ECC71'
                     );
                   }}
                   disabled={loading}
@@ -699,6 +1009,36 @@ const QRPaymentScreen = () => {
           Ask customers to scan this QR code with any UPI app
         </Text>
       </View>
+
+      {/* Error Modal */}
+      <ErrorModal 
+        visible={errorModal.visible} 
+        title={errorModal.title} 
+        message={errorModal.message}
+        onClose={closeErrorModal}
+      />
+
+      {/* Success Modal */}
+      <SuccessModal 
+        visible={successModal.visible} 
+        title={successModal.title} 
+        message={successModal.message}
+        onClose={closeSuccessModal}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal 
+        visible={confirmationModal.visible} 
+        title={confirmationModal.title} 
+        message={confirmationModal.message}
+        onConfirm={async () => {
+          closeConfirmationModal();
+          await confirmationModal.onConfirm();
+        }}
+        confirmText={confirmationModal.confirmText}
+        confirmColor={confirmationModal.confirmColor}
+        onCancel={closeConfirmationModal}
+      />
     </SafeAreaView>
   );
 };
@@ -992,6 +1332,7 @@ const styles = StyleSheet.create({
   paymentDetailHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   paymentDetailHeaderText: {
@@ -999,6 +1340,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1c1917',
     marginLeft: 8,
+    flex: 1,
+  },
+  copyAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1c1917',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  copyAllButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   paymentDetailRow: {
     flexDirection: 'row',
@@ -1013,12 +1369,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#636e72',
   },
-  paymentDetailValueContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginLeft: 12,
-  },
+
   paymentDetailValue: {
     fontSize: 16,
     fontWeight: '500',
@@ -1026,26 +1377,17 @@ const styles = StyleSheet.create({
     marginRight: 8,
     flex: 1,
   },
-  copyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FF6B00',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    minWidth: 32,
-    justifyContent: 'center',
-  },
-  upiAppButton: {
+
+  whatsappShareButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FF6B00',
-    borderRadius: 8,
-    paddingVertical: 14,
+    backgroundColor: '#25D366',
+    borderRadius: 12,
+    paddingVertical: 16,
     marginTop: 20,
   },
-  upiAppButtonText: {
+  whatsappShareButtonText: {
     color: '#FFFFFF',
     fontWeight: '600',
     marginLeft: 10,
@@ -1110,9 +1452,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
-  shareButton: {
-    backgroundColor: '#FF6B00',
-  },
+
   confirmButton: {
     backgroundColor: '#2ECC71',
   },

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import PersonalDetails from '../component/customer/profile/presonalDetails';
+import { PersonalDetails } from '@/components/common';
 
 export default function PersonalDetailsScreen() {
   return (

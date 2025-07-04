@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import {
   View,
   Text,
@@ -15,14 +15,16 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Star, ShoppingBag, ChevronRight, Pizza, Flame, Trophy, Gift } from 'lucide-react-native';
+import { ShoppingBag, ChevronRight, Pizza, Flame, Trophy, Gift, Phone } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '../../redux/store';
+import store from '../../redux/store';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { API_URL } from '@/config';
 import { addToCart } from '../../redux/slices/cartSlice';
+import { getSocket, onSocketEvent, offSocketEvent } from '@/src/utils/socket';
 
 const { width, height } = Dimensions.get('window');
 const ITEM_WIDTH = width * 0.8;
@@ -58,6 +60,33 @@ interface HomeOfferItem {
   gradientColors: readonly [string, string]; // This ensures exactly 2 colors
 }
 
+// Business Profile interface
+interface BusinessProfile {
+  name: string;
+  address: string;
+  phone: string;
+  email?: string;
+  hours: {
+    [key: string]: {
+      open: string;
+      close: string;
+      isOpen: boolean;
+    }
+  };
+  status: {
+    isOpen: boolean;
+    reason: string;
+    manualOverride: boolean;
+  };
+}
+
+// Size variation interface
+interface SizeVariation {
+  size: string;
+  price: number;
+  available: boolean;
+}
+
 // Menu Item interface to match backend schema
 interface MenuItem {
   _id: string;
@@ -71,9 +100,12 @@ interface MenuItem {
   popular: boolean;
   rating: number;
   available: boolean;
+  hasMultipleSizes?: boolean;
+  sizeVariations?: SizeVariation[];
 }
 
 function HomeScreen() {
+  // All hooks at the top, declared only once
   const router = useRouter();
   const dispatch = useDispatch();
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -81,19 +113,19 @@ function HomeScreen() {
   const [offers, setOffers] = useState<HomeOfferItem[]>([]);
   const [loadingOffers, setLoadingOffers] = useState(true);
   const [offerError, setOfferError] = useState<string | null>(null);
-
-  // Popular items state
   const [popularItems, setPopularItems] = useState<MenuItem[]>([]);
   const [loadingPopularItems, setLoadingPopularItems] = useState(true);
   const [popularItemsError, setPopularItemsError] = useState<string | null>(null);
-
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
+  const [businessProfileLoading, setBusinessProfileLoading] = useState(true);
+  const [businessProfileError, setBusinessProfileError] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState<{ isOpen: boolean; reason: string; manualOverride: boolean } | null>(null);
   // Get user info from redux state
   const { name, isGuest } = useSelector((state: RootState) => state.auth);
   const userName = name || 'Pizza Lover';
-
   // Get cart items
   const cartItems = useSelector((state: RootState) => state.cart.items);
-  const cartItemCount = cartItems.length;
+  const cartItemCount = cartItems ? cartItems.length : 0;
 
 
   const offerThemes = [
@@ -119,6 +151,28 @@ function HomeScreen() {
     }
   ];
 
+  // Fetch business profile - runs once on mount
+  useEffect(() => {
+    const fetchBusinessProfile = async () => {
+      try {
+        setBusinessProfileLoading(true);
+        setBusinessProfileError(null);
+        const response = await fetch(`${API_URL}/api/business/profile`);
+        if (!response.ok) throw new Error('Failed to fetch business profile');
+        const data = await response.json();
+        setBusinessProfile(data);
+        setLiveStatus(data.status);
+      } catch (err) {
+        setBusinessProfileError('Could not load business info');
+      } finally {
+        setBusinessProfileLoading(false);
+      }
+    };
+
+    fetchBusinessProfile();
+  }, []); // Only run once on mount
+
+  // Fetch offers - runs once on mount
   useEffect(() => {
     const fetchOffers = async () => {
       try {
@@ -207,6 +261,11 @@ function HomeScreen() {
       }
     };
 
+    fetchOffers();
+  }, []); // Only run once on mount
+
+  // Fetch popular items - runs once on mount
+  useEffect(() => {
     const fetchPopularItems = async () => {
       try {
         setLoadingPopularItems(true);
@@ -233,23 +292,160 @@ function HomeScreen() {
       }
     };
 
-    fetchOffers();
     fetchPopularItems();
+  }, []); // Only run once on mount
+
+  // Set up socket listener for business status updates - runs once on mount
+  useEffect(() => {
+    const setupSocketListener = async () => {
+      let socket = getSocket();
+      
+      // If socket is not available, try to initialize it
+      if (!socket) {
+        console.log('Socket not found, attempting to initialize...');
+        const { initializeSocket, joinSocketRooms } = await import('@/src/utils/socket');
+        
+        // Get auth data from redux state
+        const state = store.getState();
+        const { token, userId, role } = state.auth;
+        
+        if (token && userId) {
+          socket = initializeSocket(token);
+          if (socket) {
+            // Join socket rooms for the user
+            joinSocketRooms(userId, role || 'customer');
+            console.log('Socket initialized and joined rooms for business status updates');
+          }
+        }
+      }
+
+      const handleStatusChange = (status: { isOpen: boolean; reason: string; manualOverride: boolean }) => {
+        console.log('✅ Business status changed received:', status);
+        setLiveStatus(status);
+        // Update business profile status using functional update to avoid dependency
+        setBusinessProfile(prev => prev ? {
+          ...prev,
+          status: status
+        } : null);
+      };
+
+      // Set up the listener
+      if (socket) {
+        console.log('Setting up businessStatusChanged listener');
+        const { onSocketEvent } = await import('@/src/utils/socket');
+        onSocketEvent('businessStatusChanged', handleStatusChange);
+        
+        // Also listen for socket connection events
+        socket.on('connect', () => {
+          console.log('✅ Socket connected in home screen');
+          // Re-join rooms on reconnection
+          const state = store.getState();
+          const { userId, role } = state.auth;
+          if (userId) {
+            socket.emit('join', { userId, role: role || 'customer' });
+            console.log('Re-joined socket rooms after reconnection');
+          }
+        });
+        
+        socket.on('disconnect', () => {
+          console.log('❌ Socket disconnected in home screen');
+        });
+
+        // Listen for reconnection events
+        socket.on('reconnect', () => {
+          console.log('🔄 Socket reconnected');
+          const state = store.getState();
+          const { userId, role } = state.auth;
+          if (userId) {
+            socket.emit('join', { userId, role: role || 'customer' });
+            console.log('Re-joined socket rooms after reconnection');
+          }
+        });
+      } else {
+        console.log('⚠️ Socket not available for business status listener');
+      }
+
+      // Return cleanup function
+      return async () => {
+        console.log('Cleaning up businessStatusChanged listener');
+        const { offSocketEvent } = await import('@/src/utils/socket');
+        offSocketEvent('businessStatusChanged', handleStatusChange);
+      };
+    };
+
+    // Set up socket and store cleanup function
+    let cleanup: (() => Promise<void>) | null = null;
+    setupSocketListener().then(cleanupFn => {
+      cleanup = cleanupFn;
+    });
+
+    // Cleanup on unmount
+    return () => {
+      if (cleanup) {
+        cleanup();
+      }
+    };
+  }, []); // Only run once on mount
+
+  // Periodic socket connection check - runs every 30 seconds
+  useEffect(() => {
+    const connectionCheckInterval = setInterval(async () => {
+      const { isSocketConnected, ensureSocketConnection, joinSocketRooms } = await import('@/src/utils/socket');
+      
+      if (!isSocketConnected()) {
+        console.log('Socket connection lost, attempting to reconnect...');
+        const state = store.getState();
+        const { token, userId, role } = state.auth;
+        
+        if (token && userId) {
+          const socket = ensureSocketConnection(token);
+          if (socket) {
+            joinSocketRooms(userId, role || 'customer');
+            console.log('Socket reconnected successfully');
+          }
+        }
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => {
+      clearInterval(connectionCheckInterval);
+    };
   }, []);
+
 
   const navigateToCart = () => {
     router.push('/cart');
   };
 
   const navigateToItem = (itemId: string) => {
+    // Uncomment and implement if you have a menu item page
     // router.push(`/menu/${itemId}`);
   };
 
   const navigateToMenu = () => {
+    // Check if business is open before allowing navigation to menu
+    if (liveStatus && !liveStatus.isOpen) {
+      Alert.alert(
+        "Restaurant Closed",
+        `Sorry, we're currently closed. ${liveStatus.reason || 'Please check our operating hours.'}`,
+        [{ text: "OK", style: "default" }]
+      );
+      return;
+    }
     router.push('/(tabs)/menu');
   };
 
   const handleAddToCart = (item: MenuItem) => {
+    // Check if business is open before allowing order
+    if (liveStatus && !liveStatus.isOpen) {
+      Alert.alert(
+        "Restaurant Closed",
+        `Sorry, we're currently closed. ${liveStatus.reason || 'Please check our operating hours.'}`,
+        [{ text: "OK", style: "default" }]
+      );
+      return;
+    }
+
     dispatch(addToCart({
       id: item._id,
       name: item.name,
@@ -310,6 +506,22 @@ function HomeScreen() {
     }
   );
 
+  // Helper function to get the correct display price for menu items (same as menu.tsx)
+  const getDisplayPrice = (item: MenuItem): number => {
+    // If item has multiple sizes (sizeVariations), show the lowest price
+    if (item.hasMultipleSizes && item.sizeVariations && item.sizeVariations.length > 0) {
+      const availableVariations = item.sizeVariations.filter(variation => variation.available);
+      if (availableVariations.length > 0) {
+        // Return the minimum price from available variations
+        return Math.min(...availableVariations.map(variation => variation.price));
+      }
+      // Fallback to first variation if none are available (shouldn't happen)
+      return item.sizeVariations[0].price;
+    }
+    // For fixed-price items, return the base price
+    return item.price;
+  };
+
   // Render a skeleton placeholder for popular items while loading
   const renderPopularItemSkeleton = () => (
     <View style={styles.popularItemSkeletonCard}>
@@ -348,11 +560,11 @@ function HomeScreen() {
                 onPress={navigateToCart}
               >
                 <ShoppingBag size={20} color="#fff" />
-                {cartItemCount > 0 && (
+                {cartItemCount > 0 ? (
                   <View style={styles.cartBadge}>
-                    <Text style={styles.cartBadgeText}>{cartItemCount}</Text>
+                    <Text style={styles.cartBadgeText}>{cartItemCount.toString()}</Text>
                   </View>
-                )}
+                ) : null}
               </TouchableOpacity>
             </View>
 
@@ -543,12 +755,6 @@ function HomeScreen() {
                             ]}
                           />
                         </View>
-
-                        {/* Rating badge */}
-                        <View style={styles.ratingBadge}>
-                          <Star size={10} color="#FFD700" fill="#FFD700" />
-                          <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
-                        </View>
                       </View>
 
                       <View style={styles.popularItemContent}>
@@ -556,18 +762,28 @@ function HomeScreen() {
                           {item.name}
                         </Text>
 
-                        <Text style={styles.popularItemDescription} numberOfLines={1}>
-                          {item.category}
+                        <Text style={styles.popularItemDescription} numberOfLines={2}>
+                          {item.description}
                         </Text>
 
                         <View style={styles.popularItemFooter}>
-                          <Text style={styles.popularItemPrice}>₹{item.price}</Text>
-                          <TouchableOpacity
-                            style={styles.addToCartButton}
-                            onPress={() => handleAddToCart(item)}
-                          >
-                            <Text style={styles.addToCartIcon}>+</Text>
-                          </TouchableOpacity>
+                          <View style={styles.priceContainer}>
+                            <Text style={styles.popularItemPrice}>₹{getDisplayPrice(item).toFixed(0)}</Text>
+                          </View>
+                          
+                          {liveStatus && !liveStatus.isOpen ? (
+                            <View style={styles.closedButtonContainer}>
+                              <Text style={styles.closedButtonText}>Closed</Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={styles.addToCartButton}
+                              onPress={() => handleAddToCart(item)}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={styles.addToCartText}>ADD</Text>
+                            </TouchableOpacity>
+                          )}
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -577,29 +793,48 @@ function HomeScreen() {
             )}
           </View>
 
-          {/* Store Info - Enhanced Design */}
+          {/* Store Info - Dynamic Business Profile */}
           <View style={styles.storeInfoSection}>
-            <View style={styles.storeInfoHeader}>
-              <Text style={styles.storeInfoTitle}>Friends Pizza Hut</Text>
-              <View style={styles.storeInfoBadge}>
-                <Text style={styles.storeInfoBadgeText}>OPEN NOW</Text>
+            {businessProfileLoading ? (
+              <View style={styles.storeInfoContent}>
+                <ActivityIndicator size="small" color="#FF9800" />
+                <Text style={{ color: '#888', marginTop: 8 }}>Loading business info...</Text>
               </View>
-            </View>
-
-            <View style={styles.storeInfoContent}>
-              <Text style={styles.storeInfoAddress}>123 Foodie Street, Flavor Town</Text>
-              <Text style={styles.storeInfoHours}>Hours: 11:00 AM - 11:00 PM</Text>
-
-              <View style={styles.storeInfoActions}>
-                <TouchableOpacity style={styles.storeInfoButton}>
-                  <Text style={styles.storeInfoButtonText}>Call Us</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.storeInfoButton, styles.storeInfoButtonSecondary]}>
-                  <Text style={styles.storeInfoButtonTextSecondary}>Directions</Text>
-                </TouchableOpacity>
+            ) : businessProfileError ? (
+              <View style={styles.storeInfoContent}>
+                <Text style={{ color: 'red' }}>{businessProfileError}</Text>
               </View>
-            </View>
+            ) : businessProfile ? (
+              <>
+                <View style={styles.storeInfoHeader}>
+                  <Text style={styles.storeInfoTitle}>{businessProfile.name}</Text>
+                  <View style={[styles.storeInfoBadge, liveStatus?.isOpen ? null : { backgroundColor: '#F44336' }]}> 
+                    <Text style={styles.storeInfoBadgeText}>
+                      {liveStatus?.isOpen ? 'OPEN NOW' : 'CLOSED'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.storeInfoContent}>
+                  <Text style={styles.storeInfoAddress}>{businessProfile.address}</Text>
+                  <View style={styles.contactContainer}>
+                    <TouchableOpacity 
+                      style={styles.callButton}
+                      onPress={() => {
+                        const phoneNumber = businessProfile.phone.replace(/[^0-9+]/g, '');
+                        const url = `tel:${phoneNumber}`;
+                        Linking.openURL(url).catch(err => {
+                          Alert.alert('Error', 'Unable to make phone call');
+                          console.error('Phone call error:', err);
+                        });
+                      }}
+                    >
+                      <Phone size={16} color="#FF9800" />
+                      <Text style={styles.callButtonText}>{businessProfile.phone}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
+            ) : null}
           </View>
         </View>
       </ScrollView>
@@ -1048,23 +1283,6 @@ const styles = StyleSheet.create({
   nonVegDot: {
     backgroundColor: '#FF5252',
   },
-  ratingBadge: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderTopRightRadius: 12,
-  },
-  ratingText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginLeft: 3,
-  },
   popularItemContent: {
     padding: 14,
   },
@@ -1076,14 +1294,19 @@ const styles = StyleSheet.create({
   },
   popularItemDescription: {
     fontSize: 12,
-    color: '#757575',
-    marginBottom: 10,
+    color: '#666',
+    marginBottom: 8,
+    lineHeight: 16,
   },
   popularItemFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 4,
+  },
+  priceContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
   },
   popularItemPrice: {
     fontSize: 16,
@@ -1092,21 +1315,36 @@ const styles = StyleSheet.create({
   },
   addToCartButton: {
     backgroundColor: '#FF9800',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    minWidth: 50,
     alignItems: 'center',
     shadowColor: '#FF9800',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 3,
+    shadowRadius: 4,
     elevation: 4,
   },
-  addToCartIcon: {
-    fontSize: 18,
+  addToCartText: {
+    fontSize: 12,
     color: 'white',
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  closedButtonContainer: {
+    backgroundColor: '#E0E0E0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  closedButtonText: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
 
   // Skeleton loading for popular items
@@ -1191,7 +1429,27 @@ const styles = StyleSheet.create({
   storeInfoAddress: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 4,
+    marginBottom: 16,
+  },
+  contactContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  callButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF8E1',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FF9800',
+  },
+  callButtonText: {
+    fontSize: 14,
+    color: '#FF9800',
+    fontWeight: '600',
+    marginLeft: 6,
   },
   storeInfoHours: {
     fontSize: 14,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import SystemLevelAlertService from '../utils/systemLevelAlertService';
-import orderAlertService from '../utils/orderAlertService';
+import SystemLevelAlertService from '../src/utils/systemLevelAlertService';
+import orderAlertService from '../src/utils/orderAlertService';
 
 const TestSystemAlerts = () => {
   const testOrderData = {

@@ -6,6 +6,17 @@ const nodeModulesPaths = [path.resolve(projectRoot, 'node_modules')];
 
 const config = getDefaultConfig(projectRoot);
 
+// Configure path aliases
+config.resolver.alias = {
+  '@': path.resolve(projectRoot),
+  '@/components': path.resolve(projectRoot, 'src/components'),
+  '@/services': path.resolve(projectRoot, 'src/services'),
+  '@/utils': path.resolve(projectRoot, 'src/utils'),
+  '@/types': path.resolve(projectRoot, 'src/types'),
+  '@/constants': path.resolve(projectRoot, 'src/constants'),
+  '@/config': path.resolve(projectRoot, 'config'),
+};
+
 // Add the react-native-razorpay module to watchFolders
 config.watchFolders = [
   ...nodeModulesPaths,

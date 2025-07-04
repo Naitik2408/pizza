@@ -1,7 +1,7 @@
 import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
-import OfferManagement from '../component/admin/offerManagement';
+import { OfferManagement } from '@/components/features/admin';
 import { Stack } from 'expo-router';
 
 const OffersPage = () => {

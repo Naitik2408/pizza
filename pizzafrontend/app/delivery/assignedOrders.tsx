@@ -7,7 +7,6 @@ import {
   Image,
   FlatList,
   ScrollView,
-  Alert,
   ActivityIndicator,
   Linking,
   RefreshControl,
@@ -30,9 +29,15 @@ import {
 } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
+import store from '../../redux/store';
 import { API_URL } from '@/config';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getSocket, initializeSocket, joinSocketRooms, onSocketEvent, offSocketEvent, isSocketConnected, ensureSocketConnection } from '@/src/utils/socket';
+import { ZomatoLikePizzaAlarm } from '../../src/utils/nativeAlarmService';
+import SystemLevelAlertService from '../../src/utils/systemLevelAlertService';
+import * as Haptics from 'expo-haptics';
+import { ErrorModal, SuccessModal, ConfirmationModal } from '../../src/components/modals';
 
 // Function to generate initials from name
 const getInitials = (name: string): string => {
@@ -287,10 +292,67 @@ const AssignedOrders = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { token, name, email, role } = useSelector((state: RootState) => state.auth);
+  const { token, name, email, role, userId } = useSelector((state: RootState) => state.auth);
   const router = useRouter();
   const [lastRefresh, setLastRefresh] = useState(Date.now());
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  // Modal states
+  const [errorModal, setErrorModal] = useState({ visible: false, title: '', message: '' });
+  const [successModal, setSuccessModal] = useState({ visible: false, title: '', message: '' });
+  const [confirmationModal, setConfirmationModal] = useState({ 
+    visible: false, 
+    title: '', 
+    message: '', 
+    onConfirm: () => {},
+    confirmText: 'Confirm',
+    confirmColor: '#F44336'
+  });
+
+  // Modal helper functions
+  const showErrorModal = (title: string, message: string) => {
+    setErrorModal({ visible: true, title, message });
+  };
+
+  const showSuccessModal = (title: string, message: string) => {
+    setSuccessModal({ visible: true, title, message });
+  };
+
+  const showConfirmationModal = (
+    title: string, 
+    message: string, 
+    onConfirm: () => void, 
+    confirmText = 'Confirm',
+    confirmColor = '#F44336'
+  ) => {
+    setConfirmationModal({ 
+      visible: true, 
+      title, 
+      message, 
+      onConfirm, 
+      confirmText,
+      confirmColor 
+    });
+  };
+
+  const closeErrorModal = () => {
+    setErrorModal({ visible: false, title: '', message: '' });
+  };
+
+  const closeSuccessModal = () => {
+    setSuccessModal({ visible: false, title: '', message: '' });
+  };
+
+  const closeConfirmationModal = () => {
+    setConfirmationModal({ 
+      visible: false, 
+      title: '', 
+      message: '', 
+      onConfirm: () => {},
+      confirmText: 'Confirm',
+      confirmColor: '#F44336'
+    });
+  };
 
   const fetchOrders = useCallback(async () => {
     if (!token) {
@@ -394,22 +456,19 @@ const AssignedOrders = () => {
         newStatus === 'Delivered'
       ) {
         // Show alert to collect payment first
-        Alert.alert(
+        showConfirmationModal(
           'Payment Required',
           'This order requires cash on delivery payment. Please collect payment before completing delivery.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Collect Payment',
-              onPress: () => {
-                // Navigate to QR scanner with the selected order
-                router.push({
-                  pathname: '/delivery/qrscanner',
-                  params: { orderId: orderToUpdate._id }
-                });
-              }
-            }
-          ]
+          () => {
+            closeConfirmationModal();
+            // Navigate to QR scanner with the selected order
+            router.push({
+              pathname: '/delivery/qrscanner',
+              params: { orderId: orderToUpdate._id }
+            });
+          },
+          'Collect Payment',
+          '#FF6B00'
         );
         return;
       }
@@ -426,7 +485,8 @@ const AssignedOrders = () => {
         },
         body: JSON.stringify({
           status: newStatus,
-          note: `Status updated to ${newStatus} by delivery agent`
+          note: `Status updated to ${newStatus} by delivery agent`,
+          updatedBy: 'delivery'
         })
       });
 
@@ -436,16 +496,37 @@ const AssignedOrders = () => {
         throw new Error(errorData.message || 'Failed to update order status');
       }
 
-      // Update local state
+      const updatedOrder = await response.json();
+
+      // Update local state with the response data
       setOrders(orders.map(order => {
         if (order.id === orderId) {
-          return { ...order, status: newStatus };
+          return { ...order, status: newStatus, ...updatedOrder };
         }
         return order;
       }));
 
+      // Trigger haptic feedback for successful update
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (hapticError) {
+        console.log('Haptic feedback not available:', hapticError);
+      }
+
+      // Emit socket event for real-time updates to admin and other systems
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('orderStatusUpdated', {
+          orderId: mongoId,
+          status: newStatus,
+          updatedBy: 'delivery',
+          deliveryAgent: name,
+          timestamp: new Date().toISOString()
+        });
+      }
+
       // Show success message
-      Alert.alert('Success', `Order status updated to ${newStatus}`);
+      showSuccessModal('Success', `Order status updated to ${newStatus}`);
 
       // If delivered, refresh the list to remove the order after a short delay
       if (newStatus === 'Delivered') {
@@ -453,7 +534,7 @@ const AssignedOrders = () => {
       }
     } catch (err: any) {
       console.error('Error updating order status:', err);
-      Alert.alert('Error', err.message || 'Failed to update order status. Please try again.');
+      showErrorModal('Error', err.message || 'Failed to update order status. Please try again.');
     }
   };
 
@@ -466,7 +547,7 @@ const AssignedOrders = () => {
   const callCustomer = async (phoneNumber: string) => {
     try {
       if (!phoneNumber) {
-        Alert.alert("Error", "No phone number available");
+        showErrorModal("Error", "No phone number available");
         return;
       }
 
@@ -482,24 +563,21 @@ const AssignedOrders = () => {
       if (supported) {
         await Linking.openURL(phoneUrl);
       } else {
-        Alert.alert(
+        showConfirmationModal(
           "Device Limitation",
           "Your device doesn't support making calls. Would you like to copy the number?",
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Copy Number",
-              onPress: () => {
-                Clipboard.setString(phoneNumber);
-                Alert.alert("Success", "Phone number copied to clipboard");
-              }
-            }
-          ]
+          () => {
+            closeConfirmationModal();
+            Clipboard.setString(phoneNumber);
+            showSuccessModal("Success", "Phone number copied to clipboard");
+          },
+          "Copy Number",
+          "#FF6B00"
         );
       }
     } catch (error) {
       console.error('Error making phone call:', error);
-      Alert.alert("Error", "Failed to make call. Please try again.");
+      showErrorModal("Error", "Failed to make call. Please try again.");
     }
   };
 
@@ -510,7 +588,7 @@ const AssignedOrders = () => {
     // Check if phone number is valid
     if (!phoneNumber || phoneNumber.trim() === '') {
       console.error('Invalid phone number');
-      Alert.alert("Error", "Invalid phone number");
+      showErrorModal("Error", "Invalid phone number");
       return;
     }
 
@@ -523,12 +601,12 @@ const AssignedOrders = () => {
           return Linking.openURL(smsUrl);
         } else {
           console.error('SMS not supported on this device');
-          Alert.alert("Error", "SMS is not supported on this device");
+          showErrorModal("Error", "SMS is not supported on this device");
         }
       })
       .catch(err => {
         console.error('Error initiating SMS:', err);
-        Alert.alert("Error", "Could not open messaging app. Please try again.");
+        showErrorModal("Error", "Could not open messaging app. Please try again.");
       });
   };
 
@@ -573,21 +651,327 @@ const AssignedOrders = () => {
     }
   };
 
-  // Set up periodic refresh (every 30 seconds) for automatic updates
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      if (!refreshing && (Date.now() - lastRefresh) > 30000) {
-        fetchOrders();
-      }
-    }, 30000);
+  // REMOVED: Periodic refresh since we're using real-time socket updates
+  // useEffect(() => {
+  //   const intervalId = setInterval(() => {
+  //     if (!refreshing && (Date.now() - lastRefresh) > 30000) {
+  //       fetchOrders();
+  //     }
+  //   }, 30000);
 
-    return () => clearInterval(intervalId);
-  }, [fetchOrders, refreshing, lastRefresh]);
+  //   return () => clearInterval(intervalId);
+  // }, [fetchOrders, refreshing, lastRefresh]);
 
   // Load orders on component mount
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  // Socket integration for real-time updates
+  useEffect(() => {
+    const setupSocketListener = async () => {
+      let socket = getSocket();
+      
+      // Get current auth state - use the component's state first, then fallback to store
+      const currentUserId = userId || store.getState().auth.userId;
+      const currentToken = token || store.getState().auth.token;
+      const currentRole = role || store.getState().auth.role;
+      
+      console.log('🔌 Setting up socket for delivery agent:', { 
+        userId: currentUserId, 
+        role: currentRole,
+        hasToken: !!currentToken,
+        socketExists: !!socket,
+        socketConnected: socket?.connected,
+        userEmail: email,
+        userName: name
+      });
+      
+      // If we don't have userId, we can't proceed
+      if (!currentUserId) {
+        console.error('❌ No userId available for socket setup');
+        return;
+      }
+      
+      // If socket is not available, try to initialize it
+      if (!socket) {
+        console.log('Socket not found, attempting to initialize...');
+        
+        if (currentToken && currentUserId) {
+          socket = initializeSocket(currentToken);
+          if (socket) {
+            console.log('🏠 Joining socket rooms for user:', currentUserId, 'role:', currentRole);
+            await joinSocketRooms(currentUserId, currentRole);
+          }
+        }
+      } else if (!socket.connected) {
+        console.log('Socket exists but not connected, reconnecting...');
+        socket = ensureSocketConnection(currentToken);
+        if (socket && currentUserId) {
+          console.log('🏠 Joining socket rooms after reconnect:', currentUserId, 'role:', currentRole);
+          await joinSocketRooms(currentUserId, currentRole);
+        }
+      } else {
+        console.log('Socket already connected, ensuring rooms are joined...');
+        if (currentUserId && currentRole) {
+          console.log('🏠 Re-joining socket rooms:', currentUserId, 'role:', currentRole);
+          await joinSocketRooms(currentUserId, currentRole);
+        }
+      }
+
+      // Handler for new orders assigned to this delivery agent
+      const handleNewOrderAssigned = async (orderData: any) => {
+        console.log('✅ New order assigned to delivery agent:', orderData);
+        
+        try {
+          // Trigger haptic feedback
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          
+          // Play system-level alarm for new assignment
+          console.log('🔊 Triggering system-level alert...');
+          try {
+            await SystemLevelAlertService.sendSystemLevelAlert({
+              orderId: orderData._id || orderData.orderNumber,
+              orderNumber: orderData.orderNumber || `#${orderData._id}`,
+              customerName: orderData.customerName || 'Customer',
+              amount: orderData.amount || 0
+            });
+            console.log('✅ System-level alert triggered');
+          } catch (alertError) {
+            console.warn('⚠️ System alert failed:', alertError);
+            // Continue - we'll still show the popup alert
+          }
+          
+          // Set urgent alarm for new order assignment
+          console.log('📢 Setting urgent alarm...');
+          try {
+            await ZomatoLikePizzaAlarm.setUrgentOrderAlarm({
+              orderId: orderData._id || orderData.orderNumber,
+              orderNumber: orderData.orderNumber || `#${orderData._id}`,
+              customerName: orderData.customerName || 'Customer',
+              amount: orderData.amount || 0
+            });
+            console.log('✅ Urgent alarm set');
+          } catch (alarmError) {
+            console.warn('⚠️ Native alarm not available:', alarmError);
+            // Continue without alarm - notification will still work
+          }
+          
+          // Show alert to user
+          showConfirmationModal(
+            '🍕 New Delivery Assignment!',
+            `Order ${orderData.orderNumber || orderData._id} has been assigned to you. Customer: ${orderData.customerName || 'N/A'}`,
+            () => {
+              closeConfirmationModal();
+              // Refresh orders to show the new assignment
+              fetchOrders();
+            },
+            'View Order',
+            '#FF6B00'
+          );
+          
+          // Refresh orders to show the new assignment
+          fetchOrders();
+          
+        } catch (error) {
+          console.error('Error handling new order assignment:', error);
+          // Still show the alert even if alarm fails
+          showConfirmationModal(
+            '🍕 New Delivery Assignment!',
+            `Order ${orderData.orderNumber || orderData._id} has been assigned to you. Customer: ${orderData.customerName || 'N/A'}`,
+            () => {
+              closeConfirmationModal();
+              // Refresh orders to show the new assignment
+              fetchOrders();
+            },
+            'View Order',
+            '#FF6B00'
+          );
+          fetchOrders();
+        }
+      };
+
+      // Handler for order status updates
+      const handleOrderStatusUpdate = (updateData: any) => {
+        console.log('✅ Order status updated:', updateData);
+        
+        // Update the specific order in local state
+        setOrders(prevOrders => 
+          prevOrders.map(order => 
+            (order.id === updateData.orderNumber || order._id === updateData._id || order._id === updateData.orderId)
+              ? { 
+                  ...order, 
+                  status: updateData.status || order.status,
+                  paymentStatus: updateData.paymentStatus || order.paymentStatus
+                }
+              : order
+          )
+        );
+        
+        // If order was delivered or cancelled, remove it from the list after a short delay
+        if (updateData.status === 'Delivered' || updateData.status === 'Cancelled') {
+          setTimeout(() => {
+            setOrders(prevOrders => 
+              prevOrders.filter(order => 
+                order.id !== updateData.orderNumber && 
+                order._id !== updateData._id &&
+                order._id !== updateData.orderId
+              )
+            );
+          }, 2000);
+        }
+      };
+
+      // Handler for order cancellations/unassignments
+      const handleOrderCancelled = async (orderData: any) => {
+        console.log('⚠️ Order unassigned/cancelled:', orderData);
+        
+        try {
+          // Trigger haptic feedback for cancellation
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          
+          // Show cancellation alert
+          showErrorModal(
+            '⚠️ Order Unassigned',
+            `Order ${orderData.orderNumber || orderData._id} has been unassigned or cancelled.`
+          );
+          
+          // Remove the cancelled order from local state
+          setOrders(prevOrders => 
+            prevOrders.filter(order => 
+              order.id !== orderData.orderNumber && 
+              order._id !== orderData._id
+            )
+          );
+          
+        } catch (error) {
+          console.error('Error handling order cancellation:', error);
+        }
+      };
+
+      // Set up socket event listeners
+      if (socket) {
+        console.log('Setting up delivery agent socket listeners');
+        
+        // Listen for new order assignments specifically for this delivery agent
+        onSocketEvent('new_order_assigned', handleNewOrderAssigned);
+        
+        // Listen for order status updates (assigned_order_update from backend)
+        onSocketEvent('assigned_order_update', handleOrderStatusUpdate);
+        
+        // Listen for order status updates from other screens (like QR payment screen)
+        onSocketEvent('orderStatusUpdated', handleOrderStatusUpdate);
+        
+        // Listen for order cancellations
+        onSocketEvent('order_unassigned', handleOrderCancelled);
+        
+        // Handle socket connection events
+        socket.on('connect', () => {
+          console.log('✅ Socket connected in delivery orders screen');
+          console.log('🔗 Socket ID:', socket.id);
+          // Re-join rooms on reconnection
+          const currentUserId = userId || store.getState().auth.userId;
+          const currentRole = role || store.getState().auth.role;
+          console.log('👤 Rejoining rooms with:', { userId: currentUserId, role: currentRole });
+          if (currentUserId) {
+            console.log('🏠 Joining rooms: user:' + currentUserId + ' and role:' + currentRole);
+            joinSocketRooms(currentUserId, currentRole);
+          }
+        });
+        
+        socket.on('disconnect', () => {
+          console.log('❌ Socket disconnected in delivery orders screen');
+        });
+
+        socket.on('reconnect', () => {
+          console.log('🔄 Socket reconnected in delivery orders screen');
+          const currentUserId = userId || store.getState().auth.userId;
+          const currentRole = role || store.getState().auth.role;
+          console.log('👤 Rejoining rooms after reconnect:', { userId: currentUserId, role: currentRole });
+          if (currentUserId) {
+            console.log('🏠 Joining rooms after reconnect: user:' + currentUserId + ' and role:' + currentRole);
+            joinSocketRooms(currentUserId, currentRole);
+          }
+        });
+
+        // Add general socket event listener for debugging
+        socket.onAny((event, ...args) => {
+          console.log(`🔔 Socket event received: ${event}`, args);
+          
+          // Special debug for delivery-related events
+          if (event.includes('order') || event.includes('delivery') || event.includes('assigned')) {
+            console.log(`🎯 DELIVERY-RELATED EVENT: ${event}`, JSON.stringify(args, null, 2));
+          }
+        });
+
+        // Listen for specific events that might be coming with different names
+        socket.on('delivery_assignment_update', (data) => {
+          console.log('📦 Received delivery_assignment_update:', data);
+          // This might be the event we're actually receiving
+          if (data.deliveryAgent && data.deliveryAgent.toString() === currentUserId) {
+            console.log('🎯 This assignment is for current user!');
+            handleNewOrderAssigned(data);
+          }
+        });
+
+        socket.on('order_update', (data) => {
+          console.log('📦 Received order_update:', data);
+          if (data.triggerType === 'delivery_assignment' && data.deliveryAgent && data.deliveryAgent.toString() === currentUserId) {
+            console.log('🎯 Order update is for current user (delivery assignment)!');
+            handleNewOrderAssigned(data);
+          }
+        });
+      } else {
+        console.log('⚠️ Socket not available for delivery orders listener');
+      }
+
+      // Return cleanup function
+      return () => {
+        console.log('Cleaning up delivery orders socket listeners');
+        offSocketEvent('new_order_assigned', handleNewOrderAssigned);
+        offSocketEvent('assigned_order_update', handleOrderStatusUpdate);
+        offSocketEvent('orderStatusUpdated', handleOrderStatusUpdate);
+        offSocketEvent('order_unassigned', handleOrderCancelled);
+      };
+    };
+
+    // Set up socket and store cleanup function
+    let cleanup: (() => void) | null = null;
+    setupSocketListener().then(cleanupFn => {
+      cleanup = cleanupFn || null;
+    });
+
+    // Cleanup on unmount
+    return () => {
+      if (cleanup) {
+        cleanup();
+      }
+    };
+  }, [fetchOrders]); // Dependency on fetchOrders to ensure we have the latest function
+
+  // Periodic socket connection check - runs every 30 seconds
+  useEffect(() => {
+    const connectionCheckInterval = setInterval(async () => {
+      if (!isSocketConnected()) {
+        console.log('Socket connection lost in delivery orders, attempting to reconnect...');
+        const currentUserId = userId || store.getState().auth.userId;
+        const currentToken = token || store.getState().auth.token;
+        const currentRole = role || store.getState().auth.role;
+        
+        if (currentToken && currentUserId) {
+          const socket = await ensureSocketConnection(currentToken);
+          if (socket) {
+            console.log('🏠 Rejoining rooms after connection check:', currentUserId, 'role:', currentRole);
+            await joinSocketRooms(currentUserId, currentRole);
+          }
+        }
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => {
+      clearInterval(connectionCheckInterval);
+    };
+  }, [userId, token, role]); // Add dependencies to ensure we have latest values
 
   // Show only active orders (not Delivered or Cancelled)
   const activeOrders = orders.filter(order =>
@@ -760,16 +1144,15 @@ const AssignedOrders = () => {
                   if (getNextStatus(item.status) === 'Delivered' &&
                     item.paymentMethod === 'Cash on Delivery' &&
                     item.paymentStatus === 'Pending') {
-                    Alert.alert(
+                    showConfirmationModal(
                       'Payment Required',
                       'Please collect payment before completing the delivery.',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Collect Payment',
-                          onPress: () => navigateToPaymentScreen(item)
-                        }
-                      ]
+                      () => {
+                        closeConfirmationModal();
+                        navigateToPaymentScreen(item);
+                      },
+                      'Collect Payment',
+                      '#FF6B00'
                     );
                     return;
                   }
@@ -855,6 +1238,33 @@ const AssignedOrders = () => {
           </View>
         </View>
       )}
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        onClose={closeErrorModal}
+      />
+
+      {/* Success Modal */}
+      <SuccessModal
+        visible={successModal.visible}
+        title={successModal.title}
+        message={successModal.message}
+        onClose={closeSuccessModal}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        visible={confirmationModal.visible}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        onConfirm={confirmationModal.onConfirm}
+        confirmText={confirmationModal.confirmText}
+        confirmColor={confirmationModal.confirmColor}
+        onCancel={closeConfirmationModal}
+      />
     </SafeAreaView>
   );
 };

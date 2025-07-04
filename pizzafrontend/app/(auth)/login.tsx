@@ -21,7 +21,7 @@ import { useRouter } from 'expo-router';
 import { Lock, Mail, ChevronRight, Eye, EyeOff, AlertCircle } from 'lucide-react-native';
 import { API_URL } from '@/config';
 import { LinearGradient } from 'expo-linear-gradient';
-import { registerDeviceForNotifications } from '@/utils/notifications';
+import { registerDeviceForNotifications } from '../../src/utils/notifications';
 
 const { width, height } = Dimensions.get('window');
 
@@ -304,7 +304,8 @@ export default function LoginScreen() {
                 disabled={isLoading}
               >
                 <Text style={styles.signupText}>
-                  Don't have an account? <Text style={styles.signupTextBold}>Sign Up</Text>
+                  <Text>Don't have an account? </Text>
+                  <Text style={styles.signupTextBold}>Sign Up</Text>
                 </Text>
               </TouchableOpacity>
             </View>

@@ -13,11 +13,13 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
-  Switch
+  Switch,
+  Alert
 } from 'react-native';
 import { AntDesign, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { API_URL } from '@/config';
+import { getSocket, onSocketEvent, offSocketEvent } from '@/src/utils/socket';
 
 // SizePricing interface for add-ons with size-specific pricing
 interface SizePricing {
@@ -152,6 +154,13 @@ const MenuScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [validationErrors, setValidationErrors] = useState<{[groupId: string]: string}>({});
+  
+  // Business status state
+  const [businessStatus, setBusinessStatus] = useState<{
+    isOpen: boolean;
+    reason: string;
+    manualOverride: boolean;
+  } | null>(null);
 
   const dispatch = useDispatch();
   const cartItemCount = useSelector(selectCartItemCount);
@@ -178,6 +187,19 @@ const MenuScreen = () => {
     }
   };
 
+  // Fetch business status
+  const fetchBusinessStatus = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/business/profile`);
+      if (response.ok) {
+        const data = await response.json();
+        setBusinessStatus(data.status);
+      }
+    } catch (error) {
+      console.error('Failed to fetch business status:', error);
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchMenuItems();
@@ -185,6 +207,53 @@ const MenuScreen = () => {
 
   useEffect(() => {
     fetchMenuItems();
+    fetchBusinessStatus();
+
+    // Listen for live business status updates
+    const socket = getSocket();
+    if (socket) {
+      const handleStatusChange = (status: { isOpen: boolean; reason: string; manualOverride: boolean }) => {
+        setBusinessStatus(status);
+      };
+
+      const handleMenuItemUpdate = (updateData: {
+        itemId: string;
+        available?: boolean;
+        sizeVariations?: any[];
+        addOnGroups?: any[];
+        type: 'item' | 'size' | 'addon';
+      }) => {
+        console.log('✅ Menu item updated received:', updateData);
+        setMenuItems(prevItems => 
+          prevItems.map(item => {
+            if (item._id === updateData.itemId) {
+              const updatedItem = { ...item };
+              
+              // Update based on the type of change
+              if (updateData.type === 'item' && updateData.available !== undefined) {
+                updatedItem.available = updateData.available;
+              } else if (updateData.type === 'size' && updateData.sizeVariations) {
+                updatedItem.sizeVariations = updateData.sizeVariations;
+              } else if (updateData.type === 'addon' && updateData.addOnGroups) {
+                updatedItem.addOnGroups = updateData.addOnGroups;
+              }
+              
+              return updatedItem;
+            }
+            return item;
+          })
+        );
+      };
+
+      onSocketEvent('businessStatusChanged', handleStatusChange);
+      onSocketEvent('menuItemUpdated', handleMenuItemUpdate);
+
+      // Cleanup listeners on unmount
+      return () => {
+        offSocketEvent('businessStatusChanged', handleStatusChange);
+        offSocketEvent('menuItemUpdated', handleMenuItemUpdate);
+      };
+    }
   }, []);
 
   useEffect(() => {
@@ -206,7 +275,8 @@ const MenuScreen = () => {
       result = result.filter(item => item.foodType === 'Veg');
     }
 
-    result = result.filter(item => item.available);
+    // Remove this line to show unavailable items too
+    // result = result.filter(item => item.available);
 
     switch (sortBy) {
       case 'priceAsc':
@@ -553,6 +623,16 @@ const MenuScreen = () => {
   const handleAddToCart = () => {
     if (!selectedItemDetail) return;
     
+    // Check if business is open before allowing order
+    if (businessStatus && !businessStatus.isOpen) {
+      Alert.alert(
+        "Restaurant Closed",
+        `Sorry, we're currently closed. ${businessStatus.reason || 'Please check our operating hours.'}`,
+        [{ text: "OK", style: "default" }]
+      );
+      return;
+    }
+    
     // Validate customization selections
     if (!validateSelections()) {
       return;
@@ -657,42 +737,55 @@ const MenuScreen = () => {
 
     return (
       <TouchableOpacity
-        style={styles.menuItem}
-        onPress={() => openItemDetail(item)}
+        style={[styles.menuItem, !item.available && styles.unavailableMenuItem]}
+        onPress={() => item.available ? openItemDetail(item) : null}
         disabled={!item.available}
       >
-        <Image source={{ uri: item.image }} style={styles.menuItemImage} />
+        <View style={styles.imageContainer}>
+          <Image source={{ uri: item.image }} style={[styles.menuItemImage, !item.available && styles.unavailableImage]} />
+          {!item.available && (
+            <View style={styles.outOfStockOverlay}>
+              <Text style={styles.outOfStockText}>OUT OF STOCK</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.menuItemContent}>
           <View style={styles.menuItemHeader}>
             <Text style={[styles.menuItemName, !item.available && styles.unavailableItem]}>
               {item.name}
-              {!item.available && ' (Unavailable)'}
             </Text>
             {item.foodType !== 'Not Applicable' && (
               item.foodType === 'Veg' ? (
-                <View style={styles.vegBadge}>
-                  <Text style={styles.vegBadgeText}>VEG</Text>
+                <View style={[styles.vegBadge, !item.available && styles.disabledBadge]}>
+                  <Text style={[styles.vegBadgeText, !item.available && styles.disabledBadgeText]}>VEG</Text>
                 </View>
               ) : (
-                <View style={styles.nonVegBadge}>
-                  <Text style={styles.nonVegBadgeText}>NON-VEG</Text>
+                <View style={[styles.nonVegBadge, !item.available && styles.disabledBadge]}>
+                  <Text style={[styles.nonVegBadgeText, !item.available && styles.disabledBadgeText]}>NON-VEG</Text>
                 </View>
               )
             )}
           </View>
-          <Text style={styles.menuItemDescription} numberOfLines={2}>
+          <Text style={[styles.menuItemDescription, !item.available && styles.unavailableText]} numberOfLines={2}>
             {item.description}
           </Text>
           <View style={styles.menuItemFooter}>
-            <Text style={styles.menuItemPrice}>₹{getDisplayPrice(item).toFixed(2)}</Text>
-            <TouchableOpacity
-              style={[styles.addButton, !item.available && styles.addButtonDisabled]}
-              onPress={() => openItemDetail(item)}
-              disabled={!item.available}
-            >
-              <Text style={styles.addButtonText}>Add</Text>
-              <AntDesign name="plus" size={12} color="#FFF" />
-            </TouchableOpacity>
+            <Text style={[styles.menuItemPrice, !item.available && styles.unavailablePrice]}>
+              ₹{getDisplayPrice(item).toFixed(2)}
+            </Text>
+            {item.available ? (
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => openItemDetail(item)}
+              >
+                <Text style={styles.addButtonText}>Add</Text>
+                <AntDesign name="plus" size={12} color="#FFF" />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.unavailableButton}>
+                <Text style={styles.unavailableButtonText}>Not Available</Text>
+              </View>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -1094,12 +1187,17 @@ const MenuScreen = () => {
               </ScrollView>
 
               <TouchableOpacity
-                style={styles.addToCartButton}
+                style={[
+                  styles.addToCartButton,
+                  (!selectedItemDetail?.available || (businessStatus && !businessStatus.isOpen)) && styles.addToCartButtonDisabled
+                ]}
                 onPress={handleAddToCart}
-                disabled={!selectedItemDetail?.available}
+                disabled={!selectedItemDetail?.available || !!(businessStatus && !businessStatus.isOpen)}
               >
                 <Text style={styles.addToCartText}>
-                  {selectedItemDetail?.available
+                  {businessStatus && !businessStatus.isOpen
+                    ? 'Restaurant Closed'
+                    : selectedItemDetail?.available
                     ? `Add to Cart - ₹${calculateTotalPrice().toFixed(2)}`
                     : 'Currently Unavailable'}
                 </Text>
@@ -1396,6 +1494,62 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FF6B00',
+  },
+  unavailableMenuItem: {
+    opacity: 0.6,
+  },
+  imageContainer: {
+    position: 'relative',
+  },
+  unavailableImage: {
+    opacity: 0.5,
+  },
+  outOfStockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  outOfStockText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  disabledBadge: {
+    backgroundColor: '#999',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  disabledBadgeText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  unavailableText: {
+    color: '#999',
+  },
+  unavailablePrice: {
+    color: '#999',
+  },
+  unavailableButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#CCC',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  unavailableButtonText: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '600',
+    marginRight: 3,
   },
   addButton: {
     flexDirection: 'row',
@@ -1695,6 +1849,11 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  addToCartButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    elevation: 0,
+    shadowOpacity: 0,
   },
   cartIconContainer: {
     position: 'relative',

@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   Image,
-  Alert,
   ActivityIndicator,
   ScrollView,
   Modal,
@@ -30,9 +29,9 @@ import {
 } from 'lucide-react-native';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../redux/store';
-import { API_URL } from '../../config';
-import AddMenuItem from '../component/admin/manageMenu/AddMenuItem';
-import EditMenuItem from '../component/admin/manageMenu/EditMenuItem';
+import { API_URL } from '@/config';
+import { AddMenuItem, EditMenuItem } from '@/components/features/admin';
+import { SuccessModal, ErrorModal, ConfirmationModal } from '../../src/components/modals';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -187,9 +186,31 @@ const ManageMenu = () => {
   const [onlyVeg, setOnlyVeg] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [currentItem, setCurrentItem] = useState<MenuItem | null>(null);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  
+  // Modal states
+  const [successModal, setSuccessModal] = useState<{visible: boolean, title: string, message: string}>({
+    visible: false,
+    title: '',
+    message: ''
+  });
+  const [errorModal, setErrorModal] = useState<{visible: boolean, title: string, message: string}>({
+    visible: false,
+    title: '',
+    message: ''
+  });
+  const [confirmationModal, setConfirmationModal] = useState<{
+    visible: boolean,
+    title: string,
+    message: string,
+    onConfirm: () => void
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
   
   const token = useSelector((state: RootState) => state.auth.token);
 
@@ -252,7 +273,11 @@ const ManageMenu = () => {
       }
     } catch (error) {
       console.error('Error fetching menu items:', error);
-      Alert.alert('Error', 'Failed to fetch menu items. Please try again.');
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to fetch menu items. Please try again.'
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -274,9 +299,17 @@ const ManageMenu = () => {
       const data = await apiRequest('/api/menu', 'POST', newItem);
       setMenuItems([...menuItems, data]);
       setShowAddModal(false);
-      Alert.alert('Success', 'Menu item added successfully');
+      setSuccessModal({
+        visible: true,
+        title: 'Success',
+        message: 'Menu item added successfully'
+      });
     } catch (error) {
-      Alert.alert('Error', 'Failed to add menu item');
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to add menu item'
+      });
       console.error('Error adding menu item:', error);
       throw error;
     }
@@ -292,9 +325,17 @@ const ManageMenu = () => {
         item._id === currentItem._id ? data : item
       ));
       setShowEditModal(false);
-      Alert.alert('Success', 'Menu item updated successfully');
+      setSuccessModal({
+        visible: true,
+        title: 'Success',
+        message: 'Menu item updated successfully'
+      });
     } catch (error) {
-      Alert.alert('Error', 'Failed to update menu item');
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to update menu item'
+      });
       console.error('Error updating menu item:', error);
       throw error;
     }
@@ -307,10 +348,13 @@ const ManageMenu = () => {
     try {
       await apiRequest(`/api/menu/${currentItem._id}`, 'DELETE');
       setMenuItems(menuItems.filter(item => item._id !== currentItem._id));
-      setShowDeleteModal(false);
       setCurrentItem(null);
     } catch (error) {
-      Alert.alert('Error', 'Failed to delete menu item');
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to delete menu item'
+      });
       console.error('Error deleting menu item:', error);
     }
   };
@@ -332,7 +376,11 @@ const ManageMenu = () => {
         item._id === id ? data : item
       ));
     } catch (error) {
-      Alert.alert('Error', 'Failed to toggle availability');
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to toggle availability'
+      });
       console.error('Error toggling availability:', error);
     }
   };
@@ -346,7 +394,12 @@ const ManageMenu = () => {
   // Open delete confirmation modal
   const openDeleteModal = (item: MenuItem) => {
     setCurrentItem(item);
-    setShowDeleteModal(true);
+    setConfirmationModal({
+      visible: true,
+      title: 'Delete Item',
+      message: `Are you sure you want to delete "${item.name}"? This action cannot be undone.`,
+      onConfirm: handleDeleteItem
+    });
   };
 
   // Filter menu items by search query
@@ -662,39 +715,35 @@ const ManageMenu = () => {
         sizes={sizes}
       />
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        visible={showDeleteModal}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setShowDeleteModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.confirmModalContent}>
-            <View style={styles.deleteIconContainer}>
-              <Trash size={32} color="#F44336" />
-            </View>
-            <Text style={styles.deleteTitle}>Delete Item</Text>
-            <Text style={styles.deleteMessage}>
-              Are you sure you want to delete "{currentItem?.name}"? This action cannot be undone.
-            </Text>
-            <View style={styles.deleteActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowDeleteModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmDeleteButton}
-                onPress={handleDeleteItem}
-              >
-                <Text style={styles.confirmDeleteButtonText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Success Modal */}
+      <SuccessModal
+        visible={successModal.visible}
+        onClose={() => setSuccessModal({ ...successModal, visible: false })}
+        title={successModal.title}
+        message={successModal.message}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        onClose={() => setErrorModal({ ...errorModal, visible: false })}
+        title={errorModal.title}
+        message={errorModal.message}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        visible={confirmationModal.visible}
+        onConfirm={() => {
+          confirmationModal.onConfirm();
+          setConfirmationModal({ ...confirmationModal, visible: false });
+        }}
+        onCancel={() => setConfirmationModal({ ...confirmationModal, visible: false })}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
     </View>
   );
 };
@@ -1003,80 +1052,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFEBEE',
     borderRadius: 18,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  confirmModalContent: {
-    width: '80%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  deleteIconContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#FFEBEE',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  deleteTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 10,
-  },
-  deleteMessage: {
-    textAlign: 'center',
-    color: '#666666',
-    marginBottom: 20,
-  },
-  deleteActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#CCCCCC',
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    color: '#666666',
-    fontWeight: 'bold',
-  },
-  confirmDeleteButton: {
-    flex: 1,
-    backgroundColor: '#F44336',
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginLeft: 8,
-    alignItems: 'center',
-  },
-  confirmDeleteButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
   },
   emptyContainer: {
     flex: 1,

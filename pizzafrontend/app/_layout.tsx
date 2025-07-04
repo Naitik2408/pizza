@@ -8,8 +8,8 @@ import { RootState } from '../redux/store';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import orderAlertService from '../utils/orderAlertService';
-import SystemLevelAlertService from '../utils/systemLevelAlertService';
+import orderAlertService from '../src/utils/orderAlertService';
+import SystemLevelAlertService from '../src/utils/systemLevelAlertService';
 
 // Enhanced notification configuration for alarm-like behavior
 Notifications.setNotificationHandler({
@@ -149,7 +149,7 @@ function AppInitializer() {
       // Navigate based on the notification data and user role
       if (data?.orderId) {
         if (role === 'admin') {
-          router.push(`/admin/orders?openOrderId=${data.orderId}`);
+          router.push(`/admin/OrderManagement?openOrderId=${data.orderId}`);
         } else if (role === 'delivery') {
           router.push(`/delivery/assignedOrders?openOrderId=${data.orderId}`);
         }
@@ -168,7 +168,7 @@ function AppInitializer() {
         case 'view_urgent':
           console.log('👀 User wants to view order:', orderData?.orderNumber);
           // Navigate to orders page
-          router.push('/admin/orders');
+          router.push('/admin/OrderManagement');
           break;
           
         case 'mark_acknowledged':
@@ -188,7 +188,7 @@ function AppInitializer() {
           console.log('📱 Default notification tap - opening app');
           // Default tap behavior - open the app
           if (role === 'admin') {
-            router.push('/admin/orders');
+            router.push('/admin/OrderManagement');
           }
           break;
       }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import Cart from '../component/customer/cart/Cart'; // Import the Cart component
+import { Cart } from '@/components/features/cart'; // Import the Cart component
 
 const CartScreen = () => {
   return (

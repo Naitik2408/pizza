@@ -133,6 +133,19 @@ const Skeleton = ({
   );
 };
 
+const formatNumber = (num: number): string => {
+  if (num >= 1000000000) {
+    return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
+  }
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  }
+  return num.toString();
+};
+
 const AdminDashboard = () => {
   const [revenueView, setRevenueView] = useState('today'); // today, week, month
   const [loading, setLoading] = useState(true);
@@ -247,9 +260,19 @@ const AdminDashboard = () => {
     fetchDashboardStats();
   }, [fetchDashboardStats]);
 
-  // Format currency
+  // Format currency with abbreviations for large amounts
   const formatCurrency = (amount: number): string => {
-    return '₹' + amount.toLocaleString('en-IN');
+    if (amount >= 1000000000) {
+      return '₹' + (amount / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
+    }
+    if (amount >= 1000000) {
+      return '₹' + (amount / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    }
+    if (amount >= 1000) {
+      return '₹' + (amount / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    }
+    // For amounts less than 1000, show with 2 decimal places if there are decimals
+    return '₹' + (amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2));
   };
 
   // Get current date
@@ -364,7 +387,7 @@ const AdminDashboard = () => {
                     <Users size={24} color="#FF6B00" />
                   </View>
                   <View>
-                    <Text style={styles.statsCardValue}>{dashboardStats.totalUsers}</Text>
+                    <Text style={styles.statsCardValue}>{formatNumber(dashboardStats.totalUsers)}</Text>
                     <Text style={styles.statsCardLabel}>Customers</Text>
                   </View>
                 </View>
@@ -376,7 +399,7 @@ const AdminDashboard = () => {
                     <Package size={24} color="#007AFF" />
                   </View>
                   <View>
-                    <Text style={styles.statsCardValue}>{dashboardStats.totalOrders}</Text>
+                    <Text style={styles.statsCardValue}>{formatNumber(dashboardStats.totalOrders)}</Text>
                     <Text style={styles.statsCardLabel}>Orders</Text>
                   </View>
                 </View>
@@ -411,7 +434,7 @@ const AdminDashboard = () => {
                     <Clock size={24} color="#FF3B30" />
                   </View>
                   <View>
-                    <Text style={styles.statsCardValue}>{dashboardStats.ordersByStatus.inProgress}</Text>
+                    <Text style={styles.statsCardValue}>{formatNumber(dashboardStats.ordersByStatus.inProgress)}</Text>
                     <Text style={styles.statsCardLabel}>Pending</Text>
                   </View>
                 </View>
@@ -591,7 +614,7 @@ const AdminDashboard = () => {
                       </View>
 
                       <View style={styles.orderStatDetails}>
-                        <Text style={styles.orderStatCount}>{dashboardStats.ordersByStatus.delivered}</Text>
+                        <Text style={styles.orderStatCount}>{formatNumber(dashboardStats.ordersByStatus.delivered)}</Text>
                         <Text style={styles.orderStatPercentage}>{deliveredPercentage.toFixed(1)}%</Text>
                       </View>
 
@@ -621,7 +644,7 @@ const AdminDashboard = () => {
                       </View>
 
                       <View style={styles.orderStatDetails}>
-                        <Text style={styles.orderStatCount}>{dashboardStats.ordersByStatus.inProgress}</Text>
+                        <Text style={styles.orderStatCount}>{formatNumber(dashboardStats.ordersByStatus.inProgress)}</Text>
                         <Text style={styles.orderStatPercentage}>{inProgressPercentage.toFixed(1)}%</Text>
                       </View>
 
@@ -651,7 +674,7 @@ const AdminDashboard = () => {
                       </View>
 
                       <View style={styles.orderStatDetails}>
-                        <Text style={styles.orderStatCount}>{dashboardStats.ordersByStatus.cancelled}</Text>
+                        <Text style={styles.orderStatCount}>{formatNumber(dashboardStats.ordersByStatus.cancelled)}</Text>
                         <Text style={styles.orderStatPercentage}>{cancelledPercentage.toFixed(1)}%</Text>
                       </View>
 
@@ -706,7 +729,7 @@ const AdminDashboard = () => {
                         <Text style={styles.itemName}>{item.name}</Text>
                       </View>
                       <View style={styles.popularItemRight}>
-                        <Text style={styles.itemOrders}>{item.orders} orders</Text>
+                        <Text style={styles.itemOrders}>{formatNumber(item.orders)} orders</Text>
                         <Text style={[
                           styles.itemGrowth,
                           { color: item.growth.startsWith('+') ? '#22c55e' : '#ef4444' }

@@ -1,7 +1,7 @@
 import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
-import UserManagement from '../component/admin/userManagement';
+import { UserManagement } from '@/components/features/admin';
 import { Stack } from 'expo-router';
 
 const UsersPage = () => {

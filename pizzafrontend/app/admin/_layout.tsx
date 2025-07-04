@@ -30,7 +30,7 @@ export default function AdminTabLayout() {
       <Tabs.Screen
         name="menu"
         options={{
-          title: 'Manage Menu',
+          title: 'Menu',
           tabBarIcon: ({ color, size }) => <ShoppingBag size={size} color={color} />,
         }}
       />

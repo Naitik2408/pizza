@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   Platform,
   RefreshControl,
-  Alert,
   Modal,
   Animated as RNAnimated
 } from 'react-native';
@@ -31,17 +30,20 @@ import Animated, {
   cancelAnimation,
   Easing
 } from 'react-native-reanimated';
-import orderAlertService from '../../utils/orderAlertService';
-import SystemLevelAlertService from '../../utils/systemLevelAlertService';
-import { ZomatoLikePizzaAlarm } from '../../utils/nativeAlarmService';
+import orderAlertService from '../../src/utils/orderAlertService';
+import SystemLevelAlertService from '../../src/utils/systemLevelAlertService';
+import { ZomatoLikePizzaAlarm } from '../../src/utils/nativeAlarmService';
 
-import OrderCard from '../component/admin/manageOrder/orderCard';
-import OrderDetailsModal from '../component/admin/manageOrder/orderDetailsModal';
-import UpdateStatusModal from '../component/admin/manageOrder/UpdateStatusModal';
-import AssignAgentModal from '../component/admin/manageOrder/AssignAgentModal';
-import FilterModal from '../component/admin/manageOrder/FilterModal';
+import {
+  OrderCard,
+  OrderDetailsModal,
+  UpdateStatusModal,
+  AssignAgentModal,
+  FilterModal
+} from '@/components/features/admin';
+import { SuccessModal, ErrorModal, ConfirmationModal } from '../../src/components/modals';
 
-// Define types (these should match the types in orderDetailsModal.tsx)
+// Define types (these should match the types in OrderDetailsModal.tsx)
 export interface AddOnOption {
   name: string;
   option?: string;
@@ -342,6 +344,29 @@ const AdminOrders = () => {
   const statusOptions: OrderStatus[] = ['Pending', 'Preparing', 'Out for delivery', 'Delivered', 'Cancelled'];
 
   const { token, role } = useSelector((state: RootState) => state.auth);
+
+  // Modal states
+  const [successModal, setSuccessModal] = useState<{visible: boolean, title: string, message: string}>({
+    visible: false,
+    title: '',
+    message: ''
+  });
+  const [errorModal, setErrorModal] = useState<{visible: boolean, title: string, message: string}>({
+    visible: false,
+    title: '',
+    message: ''
+  });
+  const [confirmationModal, setConfirmationModal] = useState<{
+    visible: boolean,
+    title: string,
+    message: string,
+    onConfirm: () => void
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   // Animation refs
   const [notificationAnim] = useState(() => new RNAnimated.Value(-100));
@@ -691,7 +716,11 @@ const AdminOrders = () => {
       });
       
       const errorMessage = err instanceof Error ? err.message : 'Failed to load order details';
-      Alert.alert('Error', `${errorMessage}. Please try again.`);
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: `${errorMessage}. Please try again.`
+      });
       setLoadingOrderDetails(false);
     }
   };
@@ -861,18 +890,22 @@ const AdminOrders = () => {
       } : null);
 
       // Show success message
-      Alert.alert(
-        'Success',
-        `Order has been ${agentId ? 'assigned to' : 'unassigned from'} ${agentName}`,
-        [{ text: 'OK' }]
-      );
+      setSuccessModal({
+        visible: true,
+        title: 'Success',
+        message: `Order has been ${agentId ? 'assigned to' : 'unassigned from'} ${agentName}`
+      });
 
       // Close modal after assignment
       setAssignAgentModalVisible(false);
     } catch (err) {
       console.error('Error assigning delivery agent:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      Alert.alert('Error', `Failed to assign delivery agent: ${errorMessage}`);
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: `Failed to assign delivery agent: ${errorMessage}`
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -938,12 +971,20 @@ const AdminOrders = () => {
       setUpdateStatusModalVisible(false);
 
       // Show success message
-      Alert.alert('Success', `Order status updated to ${status}`, [{ text: 'OK' }]);
+      setSuccessModal({
+        visible: true,
+        title: 'Success',
+        message: `Order status updated to ${status}`
+      });
 
     } catch (err) {
       console.error('Error updating order status:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      Alert.alert('Error', `Failed to update order status: ${errorMessage}`);
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: `Failed to update order status: ${errorMessage}`
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -1004,12 +1045,20 @@ const AdminOrders = () => {
       setUpdatePaymentModalVisible(false);
 
       // Show success message
-      Alert.alert('Success', `Payment status updated to ${paymentStatus}`, [{ text: 'OK' }]);
+      setSuccessModal({
+        visible: true,
+        title: 'Success',
+        message: `Payment status updated to ${paymentStatus}`
+      });
 
     } catch (err) {
       console.error('Error updating payment status:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      Alert.alert('Error', `Failed to update payment status: ${errorMessage}`);
+      setErrorModal({
+        visible: true,
+        title: 'Error',
+        message: `Failed to update payment status: ${errorMessage}`
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -1322,6 +1371,34 @@ const AdminOrders = () => {
           isProcessing={isProcessing}
         />
       )}
+
+      {/* Success Modal */}
+      <SuccessModal
+        visible={successModal.visible}
+        onClose={() => setSuccessModal({ ...successModal, visible: false })}
+        title={successModal.title}
+        message={successModal.message}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        onClose={() => setErrorModal({ ...errorModal, visible: false })}
+        title={errorModal.title}
+        message={errorModal.message}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        visible={confirmationModal.visible}
+        onConfirm={() => {
+          confirmationModal.onConfirm();
+          setConfirmationModal({ ...confirmationModal, visible: false });
+        }}
+        onCancel={() => setConfirmationModal({ ...confirmationModal, visible: false })}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+      />
     </SafeAreaView>
   );
 };

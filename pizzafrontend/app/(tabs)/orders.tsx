@@ -13,9 +13,10 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSelector } from 'react-redux';
-import { MapPin, Clock, Star, ChevronDown, ArrowLeft, AlertCircle, LogIn, ShoppingBag } from 'lucide-react-native';
+import { MapPin, Clock, ChevronDown, ArrowLeft, AlertCircle, LogIn, ShoppingBag } from 'lucide-react-native';
 import { API_URL } from '@/config';
 import { RootState } from '../../redux/store';
+import { getSocket, onSocketEvent, offSocketEvent } from '@/src/utils/socket';
 
 // Helper functions for avatar generation
 const getInitials = (name: string): string => {
@@ -142,6 +143,92 @@ export default function OrdersScreen() {
   const [error, setError] = useState<string | null>(null);
 
   type OrderStatus = 'Pending' | 'Preparing' | 'Out for delivery' | 'Delivered' | 'Cancelled';
+
+  // Set up socket listeners for real-time order updates
+  useEffect(() => {
+    if (isGuest || !token) return;
+
+    const socket = getSocket();
+    if (socket) {
+      // Handler for order status updates
+      const handleOrderStatusUpdate = (data: {
+        _id: string;
+        orderNumber: string;
+        status: string;
+        statusUpdates: StatusUpdate[];
+        estimatedDeliveryTime?: string;
+        deliveryAgent?: any;
+        updatedAt: string;
+      }) => {
+        console.log('✅ Order status update received:', data);
+        
+        // Update current orders
+        setCurrentOrders(prevOrders => 
+          prevOrders.map(order => {
+            if (order._id === data._id) {
+              const updatedOrder = {
+                ...order,
+                status: data.status,
+                statusUpdates: data.statusUpdates || order.statusUpdates,
+                estimatedDeliveryTime: data.estimatedDeliveryTime || order.estimatedDeliveryTime,
+                deliveryAgent: data.deliveryAgent || order.deliveryAgent
+              };
+
+              // If order is completed or cancelled, move to past orders
+              if (data.status === 'Delivered' || data.status === 'Cancelled') {
+                setPastOrders(prevPastOrders => [updatedOrder, ...prevPastOrders]);
+                return null; // Will be filtered out
+              }
+
+              return updatedOrder;
+            }
+            return order;
+          }).filter(Boolean) as Order[]
+        );
+
+        // Update past orders if the order is already there
+        setPastOrders(prevOrders =>
+          prevOrders.map(order =>
+            order._id === data._id
+              ? {
+                  ...order,
+                  status: data.status,
+                  statusUpdates: data.statusUpdates || order.statusUpdates,
+                  estimatedDeliveryTime: data.estimatedDeliveryTime || order.estimatedDeliveryTime,
+                  deliveryAgent: data.deliveryAgent || order.deliveryAgent
+                }
+              : order
+          )
+        );
+      };
+
+      // Handler for delivery agent assignment
+      const handleDeliveryAgentAssigned = (data: {
+        _id: string;
+        deliveryAgent: any;
+      }) => {
+        console.log('✅ Delivery agent assigned:', data);
+        
+        setCurrentOrders(prevOrders =>
+          prevOrders.map(order =>
+            order._id === data._id
+              ? { ...order, deliveryAgent: data.deliveryAgent }
+              : order
+          )
+        );
+      };
+
+      // Set up event listeners
+      onSocketEvent('my_order_update', handleOrderStatusUpdate);
+      onSocketEvent('assigned_order_update', handleDeliveryAgentAssigned);
+
+      // Cleanup listeners on unmount
+      return () => {
+        offSocketEvent('my_order_update', handleOrderStatusUpdate);
+        offSocketEvent('assigned_order_update', handleDeliveryAgentAssigned);
+      };
+    }
+  }, [token, isGuest]);
 
   const renderGuestView = () => {
     return (
@@ -392,98 +479,13 @@ export default function OrdersScreen() {
     }
   };
 
-  // Submit a rating for an order
-  const handleRateOrder = (orderId: string) => {
-    Alert.alert(
-      'Rate Your Order',
-      'How would you rate your experience?',
-      [
-        { text: '1 ⭐', onPress: () => submitRating(orderId, 1) },
-        { text: '2 ⭐⭐', onPress: () => submitRating(orderId, 2) },
-        { text: '3 ⭐⭐⭐', onPress: () => submitRating(orderId, 3) },
-        { text: '4 ⭐⭐⭐⭐', onPress: () => submitRating(orderId, 4) },
-        { text: '5 ⭐⭐⭐⭐⭐', onPress: () => submitRating(orderId, 5) },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
 
-  // Submit the rating to the API
-  const submitRating = async (orderId: string, rating: number) => {
-    try {
-      const response = await fetch(`${API_URL}/api/orders/my-orders/${orderId}/rate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ rating })
-      });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to submit rating');
-      }
-
-      Alert.alert('Thank You!', 'Your rating has been submitted.');
-
-      // Refresh orders to update UI
-      fetchUserOrders();
-    } catch (err: any) {
-      console.error('Error submitting rating:', err);
-      Alert.alert('Error', err.message || 'Failed to submit rating. Please try again.');
-    }
-  };
-
-  // Reorder a past order
-  const handleReorder = async (orderId: string) => {
-    try {
-      // Find the order in past orders
-      const order = pastOrders.find(o => o._id === orderId);
-
-      if (!order) {
-        throw new Error('Order not found');
-      }
-
-      // Navigate to cart with these items
-      router.push({
-        pathname: '/cart',
-        params: { reorder: orderId }
-      });
-    } catch (err: any) {
-      console.error('Error reordering:', err);
-      Alert.alert('Error', err.message || 'Failed to reorder. Please try again.');
-    }
-  };
-
-  // Render order items
+  // Render order items (without images)
   const renderOrderItems = (items: OrderItem[]): React.ReactNode[] => {
     return items.map((item, index) => {
-      // Debug logging for image URLs
-      console.log(`Order item ${item.name} image URL:`, item.image);
-      
-      // Determine the best image URL to use
-      let imageUrl = item.image;
-      
-      // If no image or empty string, use a reliable default
-      if (!imageUrl || imageUrl === '' || imageUrl === 'undefined') {
-        // Use a simple, reliable default food image
-        imageUrl = 'https://via.placeholder.com/150x150/f97316/ffffff?text=Food';
-      }
-      
       return (
         <View key={index} style={styles.orderItem}>
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.itemImage}
-            defaultSource={{ uri: 'https://via.placeholder.com/48x48/f97316/ffffff?text=Food' }}
-            onError={(error) => {
-              console.log('Failed to load image for item:', item.name, 'URL:', imageUrl, 'Error:', error.nativeEvent);
-            }}
-            onLoad={() => {
-              console.log('Successfully loaded image for:', item.name);
-            }}
-          />
           <View style={styles.itemDetails}>
             <Text style={styles.itemName}>{item.name}</Text>
             <Text style={styles.itemQuantity}>
@@ -663,13 +665,48 @@ export default function OrdersScreen() {
     );
   };
 
+  // Skeleton Loading Components
+  const SkeletonOrderCard = () => (
+    <View style={styles.orderCard}>
+      <View style={styles.orderHeader}>
+        <View>
+          <View style={[styles.skeletonBox, { width: 120, height: 16, marginBottom: 8 }]} />
+          <View style={[styles.skeletonBox, { width: 80, height: 12 }]} />
+        </View>
+        <View style={[styles.skeletonBox, { width: 60, height: 14 }]} />
+      </View>
+
+      <View style={styles.deliveryTimeContainer}>
+        <View style={[styles.skeletonBox, { width: 150, height: 14 }]} />
+      </View>
+
+      <View style={styles.orderSummary}>
+        <View style={[styles.skeletonBox, { width: 40, height: 40, borderRadius: 8 }]} />
+        <View style={[styles.skeletonBox, { width: 120, height: 14, marginLeft: 10 }]} />
+        <View style={[styles.skeletonBox, { width: 60, height: 16 }]} />
+      </View>
+    </View>
+  );
+
+  const SkeletonOrderItem = () => (
+    <View style={styles.orderItem}>
+      <View style={styles.itemDetails}>
+        <View style={[styles.skeletonBox, { width: 150, height: 16, marginBottom: 4 }]} />
+        <View style={[styles.skeletonBox, { width: 80, height: 12, marginBottom: 4 }]} />
+        <View style={[styles.skeletonBox, { width: 200, height: 12 }]} />
+      </View>
+      <View style={[styles.skeletonBox, { width: 50, height: 16 }]} />
+    </View>
+  );
+
   // Render current orders
   const renderCurrentOrders = () => {
     if (loading && !refreshing && currentOrders.length === 0) {
       return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F97316" />
-          <Text style={styles.loadingText}>Loading your orders...</Text>
+        <View>
+          {[...Array(3)].map((_, index) => (
+            <SkeletonOrderCard key={index} />
+          ))}
         </View>
       );
     }
@@ -775,9 +812,10 @@ export default function OrdersScreen() {
   const renderPastOrders = () => {
     if (loading && !refreshing && pastOrders.length === 0) {
       return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F97316" />
-          <Text style={styles.loadingText}>Loading your order history...</Text>
+        <View>
+          {[...Array(3)].map((_, index) => (
+            <SkeletonOrderCard key={index} />
+          ))}
         </View>
       );
     }
@@ -834,23 +872,12 @@ export default function OrdersScreen() {
 
         {order.items.length > 0 && (
           <View style={styles.orderSummary}>
-            <Image
-              source={{
-                uri: order.items[0].image || 'https://via.placeholder.com/150x150/f97316/ffffff?text=Food'
-              }}
-              style={styles.summaryImage}
-              defaultSource={{ uri: 'https://via.placeholder.com/40x40/f97316/ffffff?text=Food' }}
-              onError={(error) => {
-                console.log('Failed to load summary image for order:', order.orderNumber, 'URL:', order.items[0].image, 'Error:', error.nativeEvent);
-              }}
-              onLoad={() => {
-                console.log('Successfully loaded summary image for order:', order.orderNumber);
-              }}
-            />
-            <Text style={styles.summaryText}>
-              {order.items[0].name} {order.items.length > 1 ? `+ ${order.items.length - 1} more` : ''}
-            </Text>
-            <Text style={styles.summaryTotal}>₹{order.amount.toFixed(2)}</Text>
+            <View style={styles.summaryTextContainer}>
+              <Text style={styles.summaryText}>
+                {order.items[0].name} {order.items.length > 1 ? `+ ${order.items.length - 1} more` : ''}
+              </Text>
+              <Text style={styles.summaryTotal}>₹{order.amount.toFixed(2)}</Text>
+            </View>
           </View>
         )}
 
@@ -872,25 +899,6 @@ export default function OrdersScreen() {
             {renderInvoice(order)}
           </View>
         )}
-
-        <View style={styles.pastOrderActions}>
-          <TouchableOpacity
-            style={styles.reorderButton}
-            onPress={() => handleReorder(order._id)}
-          >
-            <Text style={styles.reorderButtonText}>Reorder</Text>
-          </TouchableOpacity>
-
-          {order.status === 'Delivered' && !order.statusUpdates.some(update => update.note?.includes('rated')) && (
-            <TouchableOpacity
-              style={styles.rateButton}
-              onPress={() => handleRateOrder(order._id)}
-            >
-              <Star size={16} color="#F97316" />
-              <Text style={styles.rateButtonText}>Rate Order</Text>
-            </TouchableOpacity>
-          )}
-        </View>
 
         <TouchableOpacity
           style={styles.viewDetailsButton}
@@ -1077,16 +1085,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
   },
-  summaryImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
+  summaryTextContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
   },
   summaryText: {
-    flex: 1,
-    marginLeft: 10,
     fontSize: 14,
     color: '#333',
+    flex: 1,
   },
   summaryTotal: {
     fontSize: 16,
@@ -1305,47 +1314,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
-  pastOrderActions: {
-    flexDirection: 'row',
-    marginTop: 10,
-    marginBottom: 8,
-  },
-  reorderButton: {
-    backgroundColor: '#F97316',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginRight: 12,
-  },
-  reorderButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  rateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF0E6',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  rateButtonText: {
-    color: '#F97316',
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 6,
-  },
+
   viewDetailsButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFF8F1',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FFE7D3',
   },
   viewDetailsText: {
     color: '#F97316',
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     marginRight: 4,
   },
   loadingContainer: {
@@ -1499,5 +1485,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  skeletonBox: {
+    backgroundColor: '#E0E0E0',
+    borderRadius: 8,
+    marginBottom: 8,
+    opacity: 0.7,
   },
 });
