@@ -314,7 +314,7 @@ const QRPaymentScreen = () => {
       }
 
       const data = await response.json();
-      console.log('Pending payment orders:', data);
+
 
       if (!Array.isArray(data)) {
         console.error('Expected array of orders but got:', data);
@@ -509,7 +509,7 @@ Thank you for your order! 🍕`;
           deliveryAgent: name,
           timestamp: new Date().toISOString()
         });
-        console.log('📡 Emitted orderStatusUpdated event for payment completion');
+
       }
 
       // Success feedback
@@ -550,13 +550,7 @@ Thank you for your order! 🍕`;
       const currentToken = token || store.getState().auth.token;
       const currentRole = role || store.getState().auth.role;
       
-      console.log('🔌 Setting up socket for QR payment screen:', { 
-        userId: currentUserId, 
-        role: currentRole,
-        hasToken: !!currentToken,
-        socketExists: !!socket,
-        socketConnected: socket?.connected
-      });
+
       
       // If we don't have userId, we can't proceed
       if (!currentUserId) {

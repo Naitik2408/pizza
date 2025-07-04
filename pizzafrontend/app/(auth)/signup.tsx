@@ -250,7 +250,7 @@ export default function SignupScreen() {
 
   const pickImage = async () => {
     try {
-      console.log('Opening image picker...');
+      // Opening image picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -258,10 +258,7 @@ export default function SignupScreen() {
         quality: 0.8,
       });
 
-      console.log('Image picker result:', {
-        canceled: result.canceled,
-        assetCount: result.assets?.length || 0
-      });
+
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const selectedImage = result.assets[0];
@@ -278,13 +275,13 @@ export default function SignupScreen() {
 
         // Then upload to Cloudinary
         try {
-          console.log(`Starting upload for document type: ${uploadType}`);
+
           const uploadUrl = await uploadImageToCloudinary(
             selectedImage,
             uploadType === 'aadhar' ? 'delivery/documents/aadhar' : 'delivery/documents/license'
           );
 
-          console.log('Upload successful, URL:', uploadUrl.substring(0, 50) + '...');
+
 
           if (uploadType === 'aadhar') {
             setAadharCard(uploadUrl);
@@ -385,10 +382,10 @@ export default function SignupScreen() {
       throw new Error('No image URI available');
     }
 
-    console.log('Preparing to upload image to Cloudinary:', image.uri);
+
 
     setUploadProgress(0);
-    console.log('Starting upload to Cloudinary for:', folderName);
+
 
     try {
       // Prepare the form data for Cloudinary
@@ -404,7 +401,7 @@ export default function SignupScreen() {
       // Upload to Cloudinary
       const uploadUrl = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/image/upload`;
 
-      console.log('Sending upload request to Cloudinary...');
+
       const response = await fetch(uploadUrl, {
         method: 'POST',
         body: formData,
@@ -422,7 +419,7 @@ export default function SignupScreen() {
       }
 
       const data = await response.json();
-      console.log('Upload successful, received data from Cloudinary');
+
       return data.secure_url;
     } catch (error) {
       console.error('Upload error:', error);
@@ -449,14 +446,14 @@ export default function SignupScreen() {
     // Only proceed if all validations pass
     if (!isNameValid || !isEmailValid || !isPasswordValid || !isConfirmPasswordValid ||
       (role === 'delivery' && (!isVehicleTypeValid || !areDocumentsValid))) {
-      console.log('Validation failed, stopping signup process');
+
       return;
     }
 
     setIsLoading(true);
 
     try {
-      console.log('Preparing registration data...');
+
       // Prepare the data based on the user role
       const userData = {
         name,
@@ -470,12 +467,7 @@ export default function SignupScreen() {
         } : {})
       };
 
-      console.log(`Registering ${role} with data:`, {
-        ...userData,
-        password: '********',
-        aadharCard: userData.aadharCard ? '[DOCUMENT URL]' : undefined,
-        drivingLicense: userData.drivingLicense ? '[DOCUMENT URL]' : undefined
-      });
+
 
       // Send the registration request
       const response = await fetch(`${API_URL}/api/users/register`, {
@@ -484,12 +476,12 @@ export default function SignupScreen() {
         body: JSON.stringify(userData),
       });
 
-      console.log('Registration response status:', response.status);
+
       const data = await response.json();
-      console.log('Registration response data:', data);
+
 
       if (response.ok) {
-        console.log('Registration successful!');
+
         Alert.alert(
           'Success',
           role === 'customer'

@@ -1,7 +1,7 @@
 import React, {useEffect} from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, Platform, ActivityIndicator } from 'react-native';
 import { User, X, Edit, Truck, ShoppingBag, DollarSign } from 'lucide-react-native';
-import { Order, OrderItem, AddOnOption } from '../../../../app/admin/OrderManagement';
+import { Order, OrderItem, AddOnOption } from '../../../../app/admin/orders';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,

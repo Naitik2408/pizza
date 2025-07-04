@@ -236,7 +236,7 @@ const Cart = () => {
         // Try each endpoint until one works
         for (const endpoint of possibleEndpoints) {
           try {
-            console.log(`Trying to fetch business settings from: ${endpoint}`);
+
             const tempResponse = await fetch(endpoint, {
               method: 'GET',
               headers: {
@@ -247,11 +247,11 @@ const Cart = () => {
             if (tempResponse.ok) {
               response = tempResponse;
               succeeded = true;
-              console.log(`Successfully fetched from: ${endpoint}`);
+
               break;
             }
           } catch (endpointError) {
-            console.log(`Failed to fetch from ${endpoint}:`, endpointError);
+
           }
         }
         
@@ -260,7 +260,7 @@ const Cart = () => {
         }
         
         const data = await response.json();
-        console.log('Received business settings:', data);
+
         
         // Set the business settings in state
         setBusinessSettings({
@@ -543,7 +543,7 @@ const Cart = () => {
       // Better error handling that doesn't log to console in production
       if (__DEV__) {
         // Only log detailed errors in development mode
-        console.log('Offer application error (dev only):', error);
+
       }
 
       // Handle the error message for users

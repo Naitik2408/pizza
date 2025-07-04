@@ -268,7 +268,7 @@ export default function ProfileScreen() {
       dispatch(logout());
       
       if (response.ok) {
-        console.log('Logout successful');
+
       } else {
         console.error('Logout failed on server');
       }

@@ -230,7 +230,7 @@ export default function BusinessSettings() {
         if (!response.ok) throw new Error('Failed to fetch business info');
         const data = await response.json();
         
-        console.log('🏪 Business Profile Data:', data);
+
         
         setBusinessInfo({
           name: data.name,
@@ -251,10 +251,7 @@ export default function BusinessSettings() {
           manualOverride: data.manualOverride ?? { isActive: false, status: true, reason: '' },
         });
         
-        console.log('✅ Business Info State Updated:', {
-          isCurrentlyOpen: data.isCurrentlyOpen,
-          manualOverride: data.manualOverride
-        });
+
       } catch (err) {
         console.error('❌ Error fetching business info:', err);
         setBusinessInfoError('Could not load business info');
@@ -323,13 +320,13 @@ export default function BusinessSettings() {
   const handleShopStatusChange = async (isOpen: boolean) => {
     if (!token || !businessInfo) return;
     
-    console.log('🔄 Shop status change requested:', { isOpen, currentStatus: businessInfo.isCurrentlyOpen });
+
     
     try {
       // Update local state immediately for UI responsiveness
       setBusinessInfo(prev => prev ? { ...prev, isCurrentlyOpen: isOpen } : prev);
       
-      console.log('📡 Sending business status update to backend...');
+
       
       // Save to backend immediately
       const response = await fetch(`${API_URL}/api/settings/business-status`, {
@@ -353,7 +350,7 @@ export default function BusinessSettings() {
       }
       
       const responseData = await response.json();
-      console.log('✅ Business status updated successfully:', responseData);
+
       
       // Update original data to reflect the saved state
       setOriginalBusinessInfo(prev => prev ? { ...prev, isCurrentlyOpen: isOpen } : prev);
@@ -481,13 +478,7 @@ export default function BusinessSettings() {
         settings
       };
       
-      console.log('💾 Saving all business data:', {
-        businessInfo: {
-          ...businessInfo,
-          isCurrentlyOpen: businessInfo.isCurrentlyOpen
-        },
-        settings: settings
-      });
+
       
       const response = await fetch(`${API_URL}/api/business/full`, {
         method: 'PUT',
@@ -508,7 +499,7 @@ export default function BusinessSettings() {
       }
       
       const responseData = await response.json();
-      console.log('✅ All business data saved successfully:', responseData);
+
       
       // Update original data after successful save
       setOriginalBusinessInfo(JSON.parse(JSON.stringify(businessInfo)));

@@ -341,7 +341,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
             }
 
             const orderData = await response.json();
-            console.log("Razorpay order created:", orderData);
+
             return orderData;
         } catch (error) {
             console.error('Create Razorpay order error:', error);
@@ -393,16 +393,16 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
     // Update your handleWebViewMessage function to include debugging
     const handleWebViewMessage = (event: any) => {
         try {
-            console.log("WebView message received:", event.nativeEvent.data);
+
             const data = JSON.parse(event.nativeEvent.data);
 
             if (data.type === 'debug') {
-                console.log("WebView debug:", data.data);
+
                 return;
             }
 
             if (data.type === 'payment_success') {
-                console.log("Payment success data:", data.data);
+
                 setShowWebView(false);
 
                 // Process successful payment
@@ -412,7 +412,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
                     createOrder('Online', data.data);
                 }
             } else if (data.type === 'payment_failed') {
-                console.log("Payment failed data:", data.data);
+
                 setShowWebView(false);
                 Alert.alert('Payment Failed', data.data.description || 'Your payment was not completed');
                 setIsProcessingPayment(false);
@@ -451,11 +451,11 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
             setRazorpayOrderAmount(orderAmount);
 
             // Check if Razorpay SDK is available
-            console.log("Razorpay SDK check:", isRazorpayAvailable);
+
 
             // If SDK is not available, use WebView fallback
             if (!isRazorpayAvailable) {
-                console.log("Using WebView for payment");
+
                 startWebViewPayment();
                 return;
             }
@@ -479,13 +479,13 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
                 send_sms_hash: true, // Enables automatic OTP verification for UPI
             };
 
-            console.log("Opening Razorpay with options:", options);
+
 
             // Open Razorpay checkout
             RazorpayCheckout.open(options)
                 .then((data: RazorpaySuccessResponse) => {
                     // Handle success
-                    console.log('Payment success:', data);
+
                     // Verify payment with your backend if not a guest
                     if (!isGuest) {
                         verifyPayment(data, orderData.id);
@@ -496,7 +496,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
                 })
                 .catch((error: RazorpayErrorResponse) => {
                     // Handle failure
-                    console.log('Payment error:', error);
+
                     Alert.alert(
                         'Payment Failed',
                         error.description || 'Something went wrong with your payment'
@@ -657,7 +657,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
         // Immediately invoke the function to open Razorpay
         (function() {
             try {
-                console.log("Initializing Razorpay...");
+
                 
                 var options = {
                     key: "${PAYMENT_CONFIG.razorpay.keyId}",
@@ -697,7 +697,7 @@ const PaymentMethod = ({ onBack, onPaymentComplete, deliveryAddress, businessSta
                 
                 // Open Razorpay after a short delay to ensure WebView is ready
                 setTimeout(function() {
-                    console.log("Opening Razorpay...");
+
                     rzp.open();
                 }, 500);
             } catch (error) {

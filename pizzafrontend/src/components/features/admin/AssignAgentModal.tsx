@@ -112,7 +112,7 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
 
       const data = await response.json();
       // No need to update local state, we'll rely on the parent component
-      console.log("Refreshed agents list:", data.length, "agents found");
+
       
       // Notify parent component to update its state
       if (onRefreshAgents) {
@@ -126,12 +126,7 @@ const AssignAgentModal: React.FC<AssignAgentModalProps> = ({
     }
   };
 
-  // Debug log to check delivery agents data
-  console.log("Delivery agents data:", deliveryAgents.map(agent => ({
-    name: agent.name,
-    isOnline: agent.deliveryDetails?.isOnline,
-    lastActive: agent.deliveryDetails?.lastActiveTime
-  })));
+
 
   // Separate delivery agents by online status
   const { onlineAgents, offlineAgents } = useMemo(() => {

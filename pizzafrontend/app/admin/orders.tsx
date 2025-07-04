@@ -389,7 +389,7 @@ const AdminOrders = () => {
 
     // Socket connection events
     newSocket.on('connect', () => {
-      console.log('Orders page socket connected with ID:', newSocket.id);
+
 
       // Join admin room for broadcasts
       newSocket.emit('join', {
@@ -405,7 +405,7 @@ const AdminOrders = () => {
     // Clean up on unmount
     return () => {
       if (newSocket) {
-        console.log('Disconnecting orders page socket');
+
         newSocket.disconnect();
       }
 
@@ -422,7 +422,7 @@ const AdminOrders = () => {
 
     // Handle new order event
     const handleNewOrder = async (data: NewOrderEventData) => {
-      console.log("New order received in admin orders page:", data);
+
 
       // Trigger haptic feedback for new order
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -459,10 +459,10 @@ const AdminOrders = () => {
       setTotalOrders(prevTotal => prevTotal + 1);
 
       // DON'T show orange notification overlay - native alarm is better
-      console.log('📱 Skipping in-app notification overlay');
+
 
       // 🚨 NATIVE ZOMATO-LIKE ALARM SYSTEM
-      console.log('🚨 Triggering NATIVE Zomato-like alarm system...');
+
       try {
         await ZomatoLikePizzaAlarm.setUrgentOrderAlarm({
           orderId: data._id,
@@ -471,8 +471,7 @@ const AdminOrders = () => {
           amount: data.amount || 0
         });
         
-        console.log('✅ NATIVE Zomato-like alarm activated successfully');
-        console.log('   🔥 This will work even when app is CLOSED!');
+
       } catch (alarmError) {
         console.error('❌ Native alarm failed, falling back to system notification:', alarmError);
         
@@ -485,7 +484,7 @@ const AdminOrders = () => {
             customerName: data.customerName || data.customer || 'New customer',
             amount: data.amount || 0
           });
-          console.log('✅ Fallback system alert sent');
+
         } catch (fallbackError) {
           console.error('❌ All alert systems failed:', fallbackError);
           // Final fallback to basic in-app alert
@@ -507,7 +506,7 @@ const AdminOrders = () => {
 
     // Handle order update events (status changes, etc.)
     const handleOrderUpdate = (data: OrderUpdateEventData) => {
-      console.log("Order update received:", data);
+
 
       // Update the specific order in our state
       setOrders(prevOrders => prevOrders.map(order => {
@@ -540,7 +539,7 @@ const AdminOrders = () => {
 
     // Handle delivery agent assignment
     const handleDeliveryAssignment = (data: DeliveryAssignmentEventData) => {
-      console.log("Delivery assignment update received:", data);
+
 
       // Update the specific order with new delivery agent info
       setOrders(prevOrders => prevOrders.map(order => {
@@ -555,7 +554,7 @@ const AdminOrders = () => {
     };
 
     const handleDeliveryStatusUpdate = (data: DeliveryStatusUpdateData) => {
-      console.log('Delivery agent status update received:', data);
+
 
       // Update the specific agent's online status in our state
       setDeliveryAgents(prevAgents => {
@@ -586,7 +585,7 @@ const AdminOrders = () => {
 
     // Debug listener
     socket.onAny((event: string, ...args: any[]) => {
-      console.log(`Socket event received in orders page: ${event}`, args);
+
     });
 
     // Clean up listeners on unmount
@@ -655,7 +654,7 @@ const AdminOrders = () => {
 
       const data = await response.json();
       
-      console.log('📦 Order details received from backend:', JSON.stringify(data, null, 2));
+
 
       // Validate that we have required data
       if (!data._id) {
@@ -763,7 +762,7 @@ const AdminOrders = () => {
         url = `${API_URL}/api/orders/search?query=${searchQuery}&page=${page}`;
       }
 
-      console.log('Fetching orders from:', url);
+
 
       const response = await fetch(url, {
         method: 'GET',
@@ -779,7 +778,7 @@ const AdminOrders = () => {
       }
 
       const data: OrdersApiResponse = await response.json();
-      console.log(`Received ${data.orders?.length || 0} orders from API, page ${data.page} of ${data.pages}`);
+
 
       // Process orders to ensure they have all required fields
       const processedOrders = data.orders.map(order => ({

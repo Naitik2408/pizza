@@ -160,7 +160,7 @@ export default function OrdersScreen() {
         deliveryAgent?: any;
         updatedAt: string;
       }) => {
-        console.log('✅ Order status update received:', data);
+
         
         // Update current orders
         setCurrentOrders(prevOrders => 
@@ -207,7 +207,7 @@ export default function OrdersScreen() {
         _id: string;
         deliveryAgent: any;
       }) => {
-        console.log('✅ Delivery agent assigned:', data);
+
         
         setCurrentOrders(prevOrders =>
           prevOrders.map(order =>
@@ -283,7 +283,7 @@ export default function OrdersScreen() {
       setError(null);
       if (!refreshing) setLoading(true);
 
-      console.log('Fetching orders from API...');
+
       const response = await fetch(`${API_URL}/api/orders/my-orders`, {
         method: 'GET',
         headers: {
@@ -294,7 +294,7 @@ export default function OrdersScreen() {
 
       // Handle 204 No Content response (no orders found)
       if (response.status === 204) {
-        console.log('No orders found (204 No Content)');
+
         setCurrentOrders([]);
         setPastOrders([]);
         setLoading(false);
@@ -304,7 +304,7 @@ export default function OrdersScreen() {
 
       // Handle authentication errors specifically
       if (response.status === 401) {
-        console.log('Authentication error - token may be expired or invalid');
+
         // You might want to dispatch logout action here if using Redux
         // dispatch(logout());
         throw new Error('Your session has expired. Please log in again.');
@@ -319,13 +319,13 @@ export default function OrdersScreen() {
 
       // Handle case where data might be empty object or null
       if (!data || (typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length === 0)) {
-        console.log('Empty response data');
+
         setCurrentOrders([]);
         setPastOrders([]);
         return;
       }
 
-      console.log(`Received ${Array.isArray(data) ? data.length : 'non-array'} response from API`);
+
 
       // Ensure we're handling both array and paginated response formats
       // Also handle the case where backend returns {orders: []} format on error

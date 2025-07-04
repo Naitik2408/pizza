@@ -33,7 +33,7 @@ class OrderAlertService {
         }
       );
       this.sound = sound;
-      console.log('Order alert sound initialized');
+
     } catch (error) {
       console.error('Error loading order alert sound:', error);
       // Create a fallback using system sounds
@@ -56,7 +56,7 @@ class OrderAlertService {
         }
       );
       this.sound = sound;
-      console.log('Fallback alert sound initialized');
+
     } catch (error) {
       console.error('Fallback sound initialization failed:', error);
     }
@@ -71,44 +71,41 @@ class OrderAlertService {
     customerName: string;
     amount: number;
   }) {
-    console.log('🔔 ORDER ALERT SERVICE - playOrderAlert called');
-    console.log('📦 Order data received:', JSON.stringify(orderData, null, 2));
-    console.log('🔄 Is alert currently active?', this.isAlertActive);
+
     
     if (this.isAlertActive) {
-      console.log('⚠️ Alert already active, skipping...');
+      // Alert already active, skipping
       return;
     }
 
     try {
       this.isAlertActive = true;
-      console.log('🚨 STARTING URGENT ORDER ALERT for order:', orderData.orderNumber);
-      console.log('📱 Platform:', Platform.OS);
+
 
       // Start all alert mechanisms immediately
-      console.log('1️⃣ Starting haptic feedback...');
+
       this.startHapticFeedback();
       
-      console.log('2️⃣ Starting vibration pattern...');
+
       this.startVibrationPattern();
       
-      console.log('3️⃣ Playing alarm sound...');
+
       await this.playAlarmSound();
       
       // Show full-screen alert immediately (don't wait)
-      console.log('4️⃣ Showing full-screen alert...');
+
       this.showFullScreenAlert(orderData);
 
       // DON'T send backup notification - let SystemLevelAlertService handle notifications
-      console.log('5️⃣ Skipping notification - handled by SystemLevelAlertService');
+
 
       // Auto-stop alert after 60 seconds if not manually stopped
       this.alertTimeoutId = setTimeout(() => {
-        console.log('⏰ Auto-stopping alert after 60 seconds');
+
         this.stopAlert();
       }, 60000);
 
-      console.log('✅ ORDER ALERT STARTED SUCCESSFULLY!');
+
 
     } catch (error) {
       console.error('❌ Error playing order alert:', error);
@@ -195,9 +192,9 @@ class OrderAlertService {
         await this.sound.setVolumeAsync(1.0);
         await this.sound.setIsLoopingAsync(true);
         await this.sound.playAsync();
-        console.log('🔊 Order alert sound playing at max volume');
+
       } else {
-        console.log('⚠️ No sound loaded, using fallback notification');
+
         // Fallback: use system notification with sound
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -254,7 +251,7 @@ class OrderAlertService {
           onPress: () => {
             this.stopAlert();
             // This will be handled by the navigation system
-            console.log('Navigate to order:', orderData.orderId);
+
           }
         }
       ],
@@ -288,7 +285,7 @@ class OrderAlertService {
   async stopAlert() {
     try {
       this.isAlertActive = false;
-      console.log('Stopping order alert');
+
 
       // Stop sound
       if (this.sound) {
@@ -308,7 +305,7 @@ class OrderAlertService {
         this.alertTimeoutId = null;
       }
 
-      console.log('Order alert stopped');
+
     } catch (error) {
       console.error('Error stopping alert:', error);
     }

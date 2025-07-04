@@ -302,7 +302,7 @@ function HomeScreen() {
       
       // If socket is not available, try to initialize it
       if (!socket) {
-        console.log('Socket not found, attempting to initialize...');
+
         const { initializeSocket, joinSocketRooms } = await import('@/src/utils/socket');
         
         // Get auth data from redux state
@@ -314,13 +314,13 @@ function HomeScreen() {
           if (socket) {
             // Join socket rooms for the user
             joinSocketRooms(userId, role || 'customer');
-            console.log('Socket initialized and joined rooms for business status updates');
+
           }
         }
       }
 
       const handleStatusChange = (status: { isOpen: boolean; reason: string; manualOverride: boolean }) => {
-        console.log('✅ Business status changed received:', status);
+
         setLiveStatus(status);
         // Update business profile status using functional update to avoid dependency
         setBusinessProfile(prev => prev ? {
@@ -331,43 +331,40 @@ function HomeScreen() {
 
       // Set up the listener
       if (socket) {
-        console.log('Setting up businessStatusChanged listener');
+
         const { onSocketEvent } = await import('@/src/utils/socket');
         onSocketEvent('businessStatusChanged', handleStatusChange);
         
         // Also listen for socket connection events
         socket.on('connect', () => {
-          console.log('✅ Socket connected in home screen');
           // Re-join rooms on reconnection
           const state = store.getState();
           const { userId, role } = state.auth;
           if (userId) {
             socket.emit('join', { userId, role: role || 'customer' });
-            console.log('Re-joined socket rooms after reconnection');
           }
         });
         
         socket.on('disconnect', () => {
-          console.log('❌ Socket disconnected in home screen');
+          // Socket disconnected
         });
 
         // Listen for reconnection events
         socket.on('reconnect', () => {
-          console.log('🔄 Socket reconnected');
+          // Socket reconnected
           const state = store.getState();
           const { userId, role } = state.auth;
           if (userId) {
             socket.emit('join', { userId, role: role || 'customer' });
-            console.log('Re-joined socket rooms after reconnection');
           }
         });
       } else {
-        console.log('⚠️ Socket not available for business status listener');
+        // Socket not available for business status listener
       }
 
       // Return cleanup function
       return async () => {
-        console.log('Cleaning up businessStatusChanged listener');
+        // Cleaning up businessStatusChanged listener
         const { offSocketEvent } = await import('@/src/utils/socket');
         offSocketEvent('businessStatusChanged', handleStatusChange);
       };
@@ -393,7 +390,7 @@ function HomeScreen() {
       const { isSocketConnected, ensureSocketConnection, joinSocketRooms } = await import('@/src/utils/socket');
       
       if (!isSocketConnected()) {
-        console.log('Socket connection lost, attempting to reconnect...');
+
         const state = store.getState();
         const { token, userId, role } = state.auth;
         
@@ -401,7 +398,7 @@ function HomeScreen() {
           const socket = ensureSocketConnection(token);
           if (socket) {
             joinSocketRooms(userId, role || 'customer');
-            console.log('Socket reconnected successfully');
+
           }
         }
       }
@@ -476,7 +473,7 @@ function HomeScreen() {
 
     AsyncStorage.setItem('selectedOfferCode', code)
       .then(() => {
-        console.log(`Offer code ${code} saved to be applied at checkout`);
+
         Alert.alert(
           "Offer Selected",
           `You've selected the offer code: ${code}. It will be automatically applied at checkout.`,

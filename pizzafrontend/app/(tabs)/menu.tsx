@@ -223,7 +223,7 @@ const MenuScreen = () => {
         addOnGroups?: any[];
         type: 'item' | 'size' | 'addon';
       }) => {
-        console.log('✅ Menu item updated received:', updateData);
+
         setMenuItems(prevItems => 
           prevItems.map(item => {
             if (item._id === updateData.itemId) {

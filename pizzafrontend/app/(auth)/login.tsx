@@ -138,7 +138,7 @@ export default function LoginScreen() {
         if (data.role === 'admin' || data.role === 'delivery') {
           registerDeviceForNotifications(data.token)
             .then(success => {
-              console.log('Notification registration:', success ? 'successful' : 'failed');
+
             })
             .catch(err => {
               console.error('Error during notification registration:', err);
